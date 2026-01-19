@@ -17,7 +17,7 @@ fabric:
   
   # Certificate Authority Configuration
   ca:
-    url: https://localhost:7054
+    url: http://localhost:7054
     name: ca.healthcare.mediledger.com
     admin:
       username: admin
