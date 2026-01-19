@@ -1,0 +1,58 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: mediledger
+
+# Hyperledger Fabric Configuration
+fabric:
+  network:
+    name: mediledger-network
+    channel: healthcarechannel
+    chaincode: mediledger-cc
+    connection-profile: fabric-network/connection-profile.yaml
+  
+  # Certificate Authority Configuration
+  ca:
+    url: https://localhost:7054
+    name: ca.healthcare.mediledger.com
+    admin:
+      username: admin
+      password: adminpw
+    tls-enabled: false
+  
+  # Organization Configuration
+  organization:
+    name: HealthcareOrg
+    msp-id: HealthcareOrgMSP
+    peer:
+      url: grpc://localhost:7051
+      name: peer0.healthcare.mediledger.com
+  
+  # Wallet Configuration
+  wallet:
+    type: file
+    path: wallet
+
+# JWT Configuration
+jwt:
+  secret: ${JWT_SECRET:mediledger-secret-key-change-this-in-production-2024}
+  expiration: 86400000  # 24 hours in milliseconds
+  header: Authorization
+  prefix: "Bearer "
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.mediledger: DEBUG
+    org.hyperledger.fabric: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/mediledger.log

@@ -1,0 +1,53 @@
+---
+name: "MediLedger Healthcare Network"
+version: 1.0.0
+client:
+  organization: HealthcareOrg
+  logging:
+    level: info
+
+channels:
+  healthcarechannel:
+    orderers:
+      - orderer.mediledger.com
+    peers:
+      peer0.healthcare.mediledger.com:
+        endorsingPeer: true
+        chaincodeQuery: true
+        ledgerQuery: true
+        eventSource: true
+
+organizations:
+  HealthcareOrg:
+    mspid: HealthcareOrgMSP
+    peers:
+      - peer0.healthcare.mediledger.com
+    certificateAuthorities:
+      - ca.healthcare.mediledger.com
+
+orderers:
+  orderer.mediledger.com:
+    url: grpc://localhost:7050
+    grpcOptions:
+      ssl-target-name-override: orderer.mediledger.com
+      hostnameOverride: orderer.mediledger.com
+
+peers:
+  peer0.healthcare.mediledger.com:
+    url: grpc://localhost:7051
+    grpcOptions:
+      ssl-target-name-override: peer0.healthcare.mediledger.com
+      hostnameOverride: peer0.healthcare.mediledger.com
+      grpc.http2.keepalive_time: 15
+
+certificateAuthorities:
+  ca.healthcare.mediledger.com:
+    url: http://localhost:7054
+    caName: ca.healthcare.mediledger.com
+    tlsCACerts:
+      path: ""
+    httpOptions:
+      verify: false
+    registrar:
+      enrollId: admin
+      enrollSecret: adminpw
