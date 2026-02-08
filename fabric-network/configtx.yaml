@@ -1,0 +1,178 @@
+# Hyperledger Fabric ConfigTX Configuration
+# Defines organizations, orderer, and channel configuration for MediLedger
+
+---
+################################################################################
+#
+#   Organizations
+#
+################################################################################
+Organizations:
+    # Orderer Organization
+    - &OrdererOrg
+        Name: OrdererOrg
+        ID: OrdererMSP
+        MSPDir: crypto-config/ordererOrganizations/mediledger.com/msp
+
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('OrdererMSP.member')"
+            Writers:
+                Type: Signature
+                Rule: "OR('OrdererMSP.member')"
+            Admins:
+                Type: Signature
+                Rule: "OR('OrdererMSP.admin')"
+
+    # Healthcare Organization
+    - &HealthcareOrg
+        Name: HealthcareOrgMSP
+        ID: HealthcareOrgMSP
+        MSPDir: crypto-config/peerOrganizations/healthcare.mediledger.com/msp
+
+        Policies:
+            Readers:
+                Type: Signature
+                Rule: "OR('HealthcareOrgMSP.admin', 'HealthcareOrgMSP.peer', 'HealthcareOrgMSP.client')"
+            Writers:
+                Type: Signature
+                Rule: "OR('HealthcareOrgMSP.admin', 'HealthcareOrgMSP.client')"
+            Admins:
+                Type: Signature
+                Rule: "OR('HealthcareOrgMSP.admin')"
+            Endorsement:
+                Type: Signature
+                Rule: "OR('HealthcareOrgMSP.peer')"
+
+        # Anchor peers for service discovery
+        AnchorPeers:
+            - Host: peer0.healthcare.mediledger.com
+              Port: 7051
+
+################################################################################
+#
+#   Capabilities
+#
+################################################################################
+Capabilities:
+    Channel: &ChannelCapabilities
+        V2_0: true
+
+    Orderer: &OrdererCapabilities
+        V2_0: true
+
+    Application: &ApplicationCapabilities
+        V2_0: true
+
+################################################################################
+#
+#   Application
+#
+################################################################################
+Application: &ApplicationDefaults
+    Organizations:
+
+    Policies:
+        Readers:
+            Type: ImplicitMeta
+            Rule: "ANY Readers"
+        Writers:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+        Admins:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Admins"
+        LifecycleEndorsement:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Endorsement"
+        Endorsement:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Endorsement"
+
+    Capabilities:
+        <<: *ApplicationCapabilities
+
+################################################################################
+#
+#   Orderer
+#
+################################################################################
+Orderer: &OrdererDefaults
+    OrdererType: solo
+
+    Addresses:
+        - orderer.mediledger.com:7050
+
+    BatchTimeout: 2s
+
+    BatchSize:
+        MaxMessageCount: 10
+        AbsoluteMaxBytes: 99 MB
+        PreferredMaxBytes: 512 KB
+
+    Organizations:
+
+    Policies:
+        Readers:
+            Type: ImplicitMeta
+            Rule: "ANY Readers"
+        Writers:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+        Admins:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Admins"
+        BlockValidation:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+
+    Capabilities:
+        <<: *OrdererCapabilities
+
+################################################################################
+#
+#   Channel
+#
+################################################################################
+Channel: &ChannelDefaults
+    Policies:
+        Readers:
+            Type: ImplicitMeta
+            Rule: "ANY Readers"
+        Writers:
+            Type: ImplicitMeta
+            Rule: "ANY Writers"
+        Admins:
+            Type: ImplicitMeta
+            Rule: "MAJORITY Admins"
+
+    Capabilities:
+        <<: *ChannelCapabilities
+
+################################################################################
+#
+#   Profiles
+#
+################################################################################
+Profiles:
+    # Genesis block for orderer
+    MediLedgerOrdererGenesis:
+        <<: *ChannelDefaults
+        Orderer:
+            <<: *OrdererDefaults
+            Organizations:
+                - *OrdererOrg
+        Consortiums:
+            MediLedgerConsortium:
+                Organizations:
+                    - *HealthcareOrg
+
+    # Channel profile for healthcarechannel
+    HealthcareChannel:
+        Consortium: MediLedgerConsortium
+        <<: *ChannelDefaults
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *HealthcareOrg

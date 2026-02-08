@@ -9,6 +9,7 @@ volumes:
   peer0.healthcare.mediledger.com:
   ca.healthcare.mediledger.com:
 
+
 services:
   # Certificate Authority
   ca.healthcare.mediledger.com:
@@ -48,6 +49,8 @@ services:
     command: orderer
     volumes:
       - orderer.mediledger.com:/var/hyperledger/production/orderer
+      - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/msp:/var/hyperledger/orderer/msp
+      - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/tls:/var/hyperledger/orderer/tls
     ports:
       - "7050:7050"
       - "7053:7053"
@@ -83,6 +86,8 @@ services:
       - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
     volumes:
       - peer0.healthcare.mediledger.com:/var/hyperledger/production
+      - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/msp:/etc/hyperledger/fabric/msp
+      - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/tls:/etc/hyperledger/fabric/tls
       - /var/run/docker.sock:/host/var/run/docker.sock
     working_dir: /root
     command: peer node start

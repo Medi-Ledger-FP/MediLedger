@@ -1,0 +1,17 @@
+# Crypto Configuration for MediLedger
+# Defines the organizational structure and generates crypto materials
+
+OrdererOrgs:
+  - Name: Orderer
+    Domain: mediledger.com
+    Specs:
+      - Hostname: orderer
+
+PeerOrgs:
+  - Name: HealthcareOrg
+    Domain: healthcare.mediledger.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+    Users:
+      Count: 1
