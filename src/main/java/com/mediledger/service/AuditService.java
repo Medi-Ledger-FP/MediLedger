@@ -110,6 +110,13 @@ public class AuditService {
     }
 
     /**
+     * Convenience overload: logs with minimal fields (used internally by services)
+     */
+    public String logAccess(String action, String userId, String patientId, String reason) {
+        return logAccess(userId, "SYSTEM", action, "N/A", patientId, "SUCCESS", "internal", reason);
+    }
+
+    /**
      * Helper method to automatically log API access
      * Should be called from controllers or interceptors
      *

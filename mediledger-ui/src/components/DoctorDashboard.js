@@ -28,7 +28,7 @@ function DoctorDashboard({ user }) {
 
     const handleLogout = () => {
         localStorage.clear();
-        navigate('/');
+        window.location.href = '/';
     };
 
     return (

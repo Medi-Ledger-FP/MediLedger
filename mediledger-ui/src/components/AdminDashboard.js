@@ -14,7 +14,7 @@ function AdminDashboard() {
 
     const handleLogout = () => {
         localStorage.clear();
-        navigate('/');
+        window.location.href = '/';
     };
 
     return (

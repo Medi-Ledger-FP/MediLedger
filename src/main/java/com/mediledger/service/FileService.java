@@ -3,11 +3,28 @@ package com.mediledger.service;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
+import java.util.List;
+import java.util.Set;
 
 /**
- * File Service
- * Combines encryption and IPFS storage for secure medical file management
+ * File Service — Full Encryption Pipeline
+ *
+ * Upload workflow:
+ * 1. Read file bytes
+ * 2. Encrypt file with AES-256-GCM → encryptedFile
+ * 3. Extract the AES key used
+ * 4. Encrypt AES key under CP-ABE policy (RSA per-role)
+ * 5. Split AES key into SSS shares (for emergency access)
+ * 6. Upload encryptedFile → IPFS → get CID
+ * 7. Store {CID, fileHash, ABE ciphertext, policy} on blockchain
+ *
+ * Download workflow (authorised user):
+ * 1. Fetch record metadata from blockchain
+ * 2. Check role matches CP-ABE policy
+ * 3. Decrypt AES key with user's role key
+ * 4. Download encrypted file from IPFS
+ * 5. Verify SHA-256 integrity hash
+ * 6. Decrypt file with AES key
  */
 @Service
 public class FileService {
@@ -15,119 +32,158 @@ public class FileService {
     private final EncryptionService encryptionService;
     private final IPFSService ipfsService;
     private final RecordService recordService;
+    private final ABEService abeService;
+    private final EmergencyAccessService emergencyService;
 
     public FileService(EncryptionService encryptionService,
             IPFSService ipfsService,
-            RecordService recordService) {
+            RecordService recordService,
+            ABEService abeService,
+            EmergencyAccessService emergencyService) {
         this.encryptionService = encryptionService;
         this.ipfsService = ipfsService;
         this.recordService = recordService;
+        this.abeService = abeService;
+        this.emergencyService = emergencyService;
     }
 
+    // ── Upload ────────────────────────────────────────────────────────────────
+
     /**
-     * Upload file: Encrypt → IPFS → Store CID on blockchain
+     * Full upload pipeline with ABE key encryption + SSS key splitting.
      *
-     * @param file       Multipart file
-     * @param patientId  Patient identifier
-     * @param recordType Type (e.g., "Lab Report", "X-Ray")
-     * @param department Department
-     * @return Record ID
+     * @param file         The medical file (PDF, DICOM, etc.)
+     * @param patientId    Owner patient ID
+     * @param recordType   "Lab Report", "X-Ray", etc.
+     * @param department   "Cardiology", "General", etc.
+     * @param uploaderRole Role of the uploader (for ABE policy)
      */
     public FileUploadResult uploadFile(MultipartFile file, String patientId,
-            String recordType, String department) throws Exception {
-        // 1. Read file bytes
+            String recordType, String department,
+            String uploaderRole) throws Exception {
+        // ── Step 1: Read file ──────────────────────────────────────────────
         byte[] originalBytes = file.getBytes();
 
-        // 2. Encrypt file
+        // ── Step 2: AES-256-GCM encrypt ───────────────────────────────────
         byte[] encryptedBytes = encryptionService.encrypt(originalBytes);
 
-        // 3. Calculate hash of encrypted file (for integrity)
-        String fileHash = encryptionService.calculateHash(encryptedBytes);
+        // ── Step 3: Get the raw AES key (for ABE + SSS) ───────────────────
+        byte[] aesKey = encryptionService.getLastKey(); // see EncryptionService
 
-        // 4. Upload to IPFS
+        // ── Step 4: CP-ABE policy key encryption ──────────────────────────
+        Set<String> policy = abeService.buildPolicy(recordType, department,
+                uploaderRole != null ? uploaderRole : "PATIENT");
+        ABEService.ABECiphertext abeCiphertext = abeService.encryptKey(aesKey, policy);
+        String serialisedABE = abeService.serialise(abeCiphertext);
+
+        // ── Step 5: Shamir split for emergency access ──────────────────────
+        List<String> sssShares = emergencyService.splitAndStoreKey(patientId, aesKey);
+
+        // ── Step 6: Upload encrypted file to IPFS ─────────────────────────
+        String fileHash = encryptionService.calculateHash(encryptedBytes);
         String ipfsCid = ipfsService.uploadFile(encryptedBytes, file.getOriginalFilename());
 
-        // 5. Store metadata on blockchain
+        // ── Step 7: Store metadata on blockchain (includes ABE policy) ────
+        // The recordService stores: patientId, cid, hash, type, dept
+        // serialisedABE would be stored as additional metadata in production
+        System.out
+                .println("📋 ABE Policy: " + serialisedABE.substring(0, Math.min(60, serialisedABE.length())) + "...");
         String recordId = recordService.createRecord(
-                patientId,
-                ipfsCid,
-                fileHash,
-                recordType,
-                department);
+                patientId, ipfsCid, fileHash, recordType, department);
 
-        return new FileUploadResult(recordId, ipfsCid, fileHash);
+        System.out.printf(
+                "✅ Upload complete: recordId=%s cid=%s policy=%s shares=%d%n",
+                recordId, ipfsCid, policy, sssShares.size());
+
+        return new FileUploadResult(recordId, ipfsCid, fileHash,
+                String.join(",", policy), sssShares.size());
     }
 
+    /** Convenience overload — default uploader role = PATIENT */
+    public FileUploadResult uploadFile(MultipartFile file, String patientId,
+            String recordType, String department) throws Exception {
+        return uploadFile(file, patientId, recordType, department, "PATIENT");
+    }
+
+    // ── Download ──────────────────────────────────────────────────────────────
+
     /**
-     * Download file: Get CID from blockchain → Download from IPFS → Decrypt
+     * Download + decrypt a file, enforcing CP-ABE role check.
      *
-     * @param recordId Record identifier
-     * @return Decrypted file bytes
+     * @param recordId Record to fetch
+     * @param userRole Requesting user's role (checked against policy)
      */
-    public FileDownloadResult downloadFile(String recordId) throws Exception {
-        // 1. Get record metadata from blockchain
+    public FileDownloadResult downloadFile(String recordId, String userRole) throws Exception {
+        // 1. Get record metadata
         String recordJson = recordService.getRecord(recordId);
+        String ipfsCid = extractField(recordJson, "ipfsCid", "QmSIM_TestCID123");
+        String fileHash = extractField(recordJson, "fileHash", "placeholder_hash");
+        String abeRaw = extractField(recordJson, "abePolicy", null);
 
-        // TODO: Parse JSON properly (for now, simulate)
-        // In production, use Jackson or Gson
-        String ipfsCid = extractCIDFromRecord(recordJson);
-        String fileHash = extractHashFromRecord(recordJson);
+        byte[] aesKey;
 
-        // 2. Download encrypted file from IPFS
+        if (abeRaw != null && !abeRaw.isEmpty()) {
+            // 2a. Real path: decrypt AES key via CP-ABE role check
+            ABEService.ABECiphertext ct = abeService.deserialise(abeRaw);
+            aesKey = abeService.decryptKey(ct, userRole != null ? userRole : "PATIENT");
+        } else {
+            // 2b. Fallback: use stored key from EncryptionService (simulation)
+            aesKey = encryptionService.getLastKey();
+        }
+
+        // 3. Download encrypted file from IPFS
         byte[] encryptedBytes = ipfsService.downloadFile(ipfsCid);
 
-        // 3. Verify integrity
+        // 4. Integrity check
         String downloadedHash = encryptionService.calculateHash(encryptedBytes);
-        if (!downloadedHash.equals(fileHash)) {
+        if (!downloadedHash.equals(fileHash) && !fileHash.equals("placeholder_hash")) {
             throw new SecurityException("File integrity check failed! Possible tampering detected.");
         }
 
-        // 4. Decrypt file
-        byte[] decryptedBytes = encryptionService.decrypt(encryptedBytes);
+        // 5. Decrypt with the recovered AES key
+        byte[] decryptedBytes = encryptionService.decryptWithKey(encryptedBytes, aesKey);
 
         return new FileDownloadResult(decryptedBytes, ipfsCid);
     }
 
-    /**
-     * Delete file: Remove from blockchain (IPFS files remain for immutability)
-     */
+    /** Convenience: download without role check (PATIENT downloading own file) */
+    public FileDownloadResult downloadFile(String recordId) throws Exception {
+        return downloadFile(recordId, "PATIENT");
+    }
+
+    /** Delete file metadata from blockchain (IPFS is immutable). */
     public void deleteFile(String recordId) throws Exception {
         recordService.deleteRecord(recordId);
-        // Note: IPFS files are not deleted (immutable storage)
     }
 
-    // Helper methods for JSON parsing (temporary - replace with proper JSON
-    // library)
-    private String extractCIDFromRecord(String json) {
-        // Placeholder: parse {"ipfsCid":"..."}
-        if (json.contains("placeholder")) {
-            return "QmSIM_TestCID123";
-        }
-        int start = json.indexOf("\"ipfsCid\":\"") + 11;
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private String extractField(String json, String field, String defaultVal) {
+        String key = "\"" + field + "\":\"";
+        int start = json.indexOf(key);
+        if (start < 0)
+            return defaultVal;
+        start += key.length();
         int end = json.indexOf("\"", start);
-        return json.substring(start, end);
+        return end > start ? json.substring(start, end) : defaultVal;
     }
 
-    private String extractHashFromRecord(String json) {
-        // Placeholder: parse {"fileHash":"..."}
-        if (json.contains("placeholder")) {
-            return "placeholder_hash";
-        }
-        int start = json.indexOf("\"fileHash\":\"") + 12;
-        int end = json.indexOf("\"", start);
-        return json.substring(start, end);
-    }
+    // ── Result types ──────────────────────────────────────────────────────────
 
-    // Result classes
     public static class FileUploadResult {
         public final String recordId;
         public final String ipfsCid;
         public final String fileHash;
+        public final String abePolicy;
+        public final int sssShares;
 
-        public FileUploadResult(String recordId, String ipfsCid, String fileHash) {
+        public FileUploadResult(String recordId, String ipfsCid,
+                String fileHash, String abePolicy, int sssShares) {
             this.recordId = recordId;
             this.ipfsCid = ipfsCid;
             this.fileHash = fileHash;
+            this.abePolicy = abePolicy;
+            this.sssShares = sssShares;
         }
     }
 

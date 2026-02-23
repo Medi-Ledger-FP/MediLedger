@@ -25,12 +25,18 @@ public class IPFSService {
     private static final String PINATA_UPLOAD_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS";
     private static final String PINATA_GATEWAY_URL = "https://gateway.pinata.cloud/ipfs/";
 
+    // Simulation cache: CID -> encrypted bytes (used when Pinata not configured)
+    private final java.util.Map<String, byte[]> simulationCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     public String uploadFile(byte[] file, String fileName) throws IOException {
+        // Fast-exit simulation: no network call when Pinata not configured
         if (pinataApiKey == null || pinataApiKey.isEmpty()) {
-            return simulateUpload(fileName);
+            return simulateUpload(file, fileName);
         }
 
         HttpURLConnection connection = (HttpURLConnection) new URL(PINATA_UPLOAD_URL).openConnection();
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(30000);
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setRequestProperty("pinata_api_key", pinataApiKey);
@@ -71,7 +77,14 @@ public class IPFSService {
 
     public byte[] downloadFile(String cid) throws IOException {
         if (cid.startsWith("QmSIM_")) {
-            return ("Simulated file content for " + cid).getBytes();
+            // Return the actual encrypted bytes stored during upload
+            byte[] cached = simulationCache.get(cid);
+            if (cached != null) {
+                System.out.println("📦 Simulation cache hit for " + cid + " (" + cached.length + " bytes)");
+                return cached;
+            }
+            // Fallback if cache was cleared (e.g. server restart)
+            throw new IOException("Simulated IPFS: no cached data for " + cid + ". Please re-upload the file.");
         }
 
         URL url = new URL(PINATA_GATEWAY_URL + cid);
@@ -106,9 +119,15 @@ public class IPFSService {
         }
     }
 
-    private String simulateUpload(String fileName) {
-        String cid = "QmSIM_" + Base64.getEncoder().encodeToString(fileName.getBytes()).substring(0, 20);
-        System.out.println("⚠️  Simulated IPFS upload (Pinata not configured): " + cid);
+    private String simulateUpload(byte[] fileBytes, String fileName) {
+        // Generate a deterministic fake CID from file content hash
+        String input = fileName + fileBytes.length;
+        String sanitised = Base64.getEncoder().encodeToString(input.getBytes()).replaceAll("[^a-zA-Z0-9]", "");
+        String cid = "QmSIM_" + sanitised.substring(0, Math.min(20, sanitised.length()));
+        // Cache the encrypted bytes so download can retrieve and decrypt them
+        simulationCache.put(cid, fileBytes);
+        System.out.println("⚠️  Simulated IPFS upload: " + cid + " (" + fileName + ", " + fileBytes.length
+                + " bytes) — cached for download");
         return cid;
     }
 

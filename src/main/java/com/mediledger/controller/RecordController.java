@@ -88,9 +88,9 @@ public class RecordController {
     @PreAuthorize("hasAnyRole('PATIENT', 'DOCTOR', 'ADMIN')")
     public ResponseEntity<?> getPatientRecords(@PathVariable String patientId) {
         try {
-            String result = recordService.getRecordsByPatient(patientId);
-
-            return ResponseEntity.ok().body(result);
+            // Return as a Java List so Jackson serialises it properly to a JSON array
+            java.util.List<java.util.Map<String, String>> records = recordService.getRecordsByPatientAsList(patientId);
+            return ResponseEntity.ok(records);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Failed to get records: " + e.getMessage());
         }

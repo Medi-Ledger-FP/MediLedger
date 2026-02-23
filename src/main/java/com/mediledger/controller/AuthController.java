@@ -26,6 +26,7 @@ public class AuthController {
 
     // In-memory store for demo (replace with database in production)
     private final Map<String, String> userCredentials = new HashMap<>();
+    private final Map<String, String> userRoles = new HashMap<>(); // username -> role
 
     public AuthController(IdentityService identityService, JwtService jwtService, PasswordEncoder passwordEncoder) {
         this.identityService = identityService;
@@ -55,10 +56,11 @@ public class AuthController {
             // Enroll user and generate X.509 certificate
             identityService.enrollUser(request.getUsername(), enrollmentSecret, request.getRole());
 
-            // Store encrypted password (for later authentication)
+            // Store encrypted password AND role for login
             userCredentials.put(
                     request.getUsername(),
                     passwordEncoder.encode(request.getPassword()));
+            userRoles.put(request.getUsername(), request.getRole().name());
 
             // Generate JWT token
             String token = jwtService.generateToken(
@@ -102,11 +104,11 @@ public class AuthController {
                         .body(Map.of("error", "Invalid credentials"));
             }
 
-            // Get user's certificate to extract role (in production, store role with user)
-            // For demo, we'll extract from JWT or use a default role
-            String role = "PATIENT"; // This should be retrieved from user metadata
+            // Retrieve the role stored at registration time
+            String role = userRoles.getOrDefault(request.getUsername(), "PATIENT");
+            System.out.println("Login successful: " + request.getUsername() + " role=" + role);
 
-            // Generate JWT token
+            // Generate JWT token with correct role
             String token = jwtService.generateToken(request.getUsername(), role);
 
             AuthResponse response = AuthResponse.builder()

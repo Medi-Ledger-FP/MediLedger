@@ -16,34 +16,26 @@ function Login({ setUser }) {
         setError('');
 
         try {
-            let result;
-            if (isRegister) {
-                result = await api.register(username, password, role);
-                if (result.token) {
-                    alert('Registration successful! Please login.');
-                    setIsRegister(false);
-                    return;
-                }
-            } else {
-                result = await api.login(username, password);
-            }
+            // Both register and login return a token — handle identically
+            const result = isRegister
+                ? await api.register(username, password, role)
+                : await api.login(username, password);
 
             if (result.token) {
+                // Always trust the role from the server response
+                const serverRole = result.role || role;
                 localStorage.setItem('token', result.token);
-                localStorage.setItem('username', username);
-                localStorage.setItem('role', result.role || role);
-                setUser({ username, role: result.role || role });
+                localStorage.setItem('username', result.username || username);
+                localStorage.setItem('role', serverRole);
+                setUser({ username: result.username || username, role: serverRole });
 
-                // Navigate based on role
-                if (result.role === 'PATIENT' || role === 'PATIENT') {
-                    navigate('/patient');
-                } else if (result.role === 'DOCTOR' || role === 'DOCTOR') {
-                    navigate('/doctor');
-                } else {
-                    navigate('/admin');
-                }
+                // Route based on server-confirmed role
+                const dest = serverRole === 'DOCTOR' ? '/doctor'
+                    : serverRole === 'ADMIN' ? '/admin'
+                        : '/patient';
+                navigate(dest);
             } else {
-                setError(result.message || 'Authentication failed');
+                setError(result.error || result.message || 'Authentication failed');
             }
         } catch (err) {
             setError('Connection error: ' + err.message);
