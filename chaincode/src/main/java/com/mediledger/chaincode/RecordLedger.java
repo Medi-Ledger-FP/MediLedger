@@ -1,7 +1,7 @@
 package com.mediledger.chaincode;
 
 import com.google.gson.Gson;
-import com.mediledger.chaincode.model.Medical Record;
+import com.mediledger.chaincode.model.MedicalRecord;
 import org.hyperledger.fabric.contract.Context;
 import org.hyperledger.fabric.contract.ContractInterface;
 import org.hyperledger.fabric.contract.annotation.*;
@@ -18,18 +18,7 @@ import java.util.List;
  * Manages medical record metadata on the blockchain
  * Actual encrypted files stored on IPFS
  */
-@Contract(
-        name = "RecordLedger",
-        info = @Info(
-                title = "Medical Record Ledger",
-                description = "Manages medical record metadata with IPFS references",
-                version = "1.0.0",
-                license = @License(
-                        name = "Apache 2.0",
-                        url = "http://www.apache.org/licenses/LICENSE-2.0.html"),
-                contact = @Contact(
-                        email = "contact@mediledger.com",
-                        name = "MediLedger Team")))
+@Contract(name = "RecordLedger", info = @Info(title = "Medical Record Ledger", description = "Manages medical record metadata with IPFS references", version = "1.0.0", license = @License(name = "Apache 2.0", url = "http://www.apache.org/licenses/LICENSE-2.0.html"), contact = @Contact(email = "contact@mediledger.com", name = "MediLedger Team")))
 @Default
 public class RecordLedger implements ContractInterface {
 
@@ -47,19 +36,32 @@ public class RecordLedger implements ContractInterface {
     /**
      * Create a new medical record on the blockchain
      *
-     * @param ctx Context
-     * @param recordId Unique record identifier
-     * @param patientId Patient identifier
-     * @param ipfsCid IPFS Content Identifier
-     * @param fileHash SHA-256 hash of encrypted file
+     * @param ctx        Context
+     * @param recordId   Unique record identifier
+     * @param patientId  Patient identifier
+     * @param ipfsCid    IPFS Content Identifier
+     * @param fileHash   SHA-256 hash of encrypted file
      * @param recordType Type of record (e.g., "Lab Report")
      * @param department Department (e.g., "Cardiology")
      * @return Created MedicalRecord as JSON
      */
+    /**
+     * Create a new medical record on the blockchain
+     *
+     * @param ctx        Context
+     * @param recordId   Unique record identifier
+     * @param patientId  Patient identifier
+     * @param ipfsCid    IPFS Content Identifier
+     * @param fileHash   SHA-256 hash of encrypted file
+     * @param recordType Type of record (e.g., "Lab Report")
+     * @param department Department (e.g., "Cardiology")
+     * @param abePolicy  Serialised CP-ABE ciphertext (AES key encrypted per role)
+     * @return Created MedicalRecord as JSON
+     */
     @Transaction(intent = Transaction.TYPE.SUBMIT)
     public String createRecord(final Context ctx, String recordId, String patientId,
-                              String ipfsCid, String fileHash, String recordType,
-                              String department) {
+            String ipfsCid, String fileHash, String recordType,
+            String department, String abePolicy) {
         ChaincodeStub stub = ctx.getStub();
 
         // Get caller identity
@@ -74,11 +76,17 @@ public class RecordLedger implements ContractInterface {
         // Create timestamp
         String timestamp = Instant.now().toString();
 
-        // Create medical record
+        // Derive allowed roles from abePolicy (roles are the prefix before '|')
+        String allowedRoles = "";
+        if (abePolicy != null && abePolicy.contains("|")) {
+            allowedRoles = abePolicy.split("\\|")[0]; // e.g. "ADMIN,PATIENT,DOCTOR"
+        }
+
+        // Create medical record with ABE policy
         MedicalRecord record = new MedicalRecord(
                 recordId, patientId, ipfsCid, fileHash,
-                uploadedBy, timestamp, recordType, department
-        );
+                uploadedBy, timestamp, recordType, department,
+                abePolicy, allowedRoles);
 
         // Save to ledger
         stub.putState(recordId, record.toJSONString().getBytes());
@@ -86,14 +94,15 @@ public class RecordLedger implements ContractInterface {
         // Emit event
         stub.setEvent("RecordCreated", record.toJSONString().getBytes());
 
-        System.out.println("Record created: " + recordId);
+        System.out.println("Record created: " + recordId + " with abePolicy length=" +
+                (abePolicy != null ? abePolicy.length() : 0));
         return record.toJSONString();
     }
 
     /**
      * Get a medical record by ID
      *
-     * @param ctx Context
+     * @param ctx      Context
      * @param recordId Record identifier
      * @return MedicalRecord as JSON
      */
@@ -112,7 +121,7 @@ public class RecordLedger implements ContractInterface {
     /**
      * Query all records for a specific patient
      *
-     * @param ctx Context
+     * @param ctx       Context
      * @param patientId Patient identifier
      * @return List of MedicalRecords as JSON array
      */
@@ -123,9 +132,8 @@ public class RecordLedger implements ContractInterface {
         // Build CouchDB query
         String queryString = String.format(
                 "{\"selector\":{\"patientId\":\"%s\",\"status\":\"ACTIVE\"}," +
-                "\"sort\":[{\"timestamp\":\"desc\"}]}",
-                patientId
-        );
+                        "\"sort\":[{\"timestamp\":\"desc\"}]}",
+                patientId);
 
         List<MedicalRecord> records = new ArrayList<>();
         QueryResultsIterator<KeyValue> results = stub.getQueryResult(queryString);
@@ -141,15 +149,15 @@ public class RecordLedger implements ContractInterface {
     /**
      * Update record metadata (e.g., new IPFS CID after re-encryption)
      *
-     * @param ctx Context
-     * @param recordId Record identifier
-     * @param newIpfsCid New IPFS CID
+     * @param ctx         Context
+     * @param recordId    Record identifier
+     * @param newIpfsCid  New IPFS CID
      * @param newFileHash New file hash
      * @return Updated MedicalRecord as JSON
      */
     @Transaction(intent = Transaction.TYPE.SUBMIT)
     public String updateRecordCID(final Context ctx, String recordId,
-                                 String newIpfsCid, String newFileHash) {
+            String newIpfsCid, String newFileHash) {
         ChaincodeStub stub = ctx.getStub();
 
         // Get existing record
@@ -177,7 +185,7 @@ public class RecordLedger implements ContractInterface {
     /**
      * Mark record as deleted (soft delete)
      *
-     * @param ctx Context
+     * @param ctx      Context
      * @param recordId Record identifier
      * @return Success message
      */
@@ -222,7 +230,7 @@ public class RecordLedger implements ContractInterface {
         for (KeyValue result : results) {
             // Filter to only include actual records (not other types)
             try {
-                MedicalRecord record = medicalRecord.fromJSONString(result.getStringValue());
+                MedicalRecord record = MedicalRecord.fromJSONString(result.getStringValue());
                 if (record.getRecordId() != null) {
                     records.add(record);
                 }
@@ -238,8 +246,8 @@ public class RecordLedger implements ContractInterface {
      * Check if user has access to record
      * Helper method used by other contracts
      *
-     * @param ctx Context
-     * @param userId User identifier
+     * @param ctx      Context
+     * @param userId   User identifier
      * @param recordId Record identifier
      * @return true if user has access
      */
@@ -247,7 +255,6 @@ public class RecordLedger implements ContractInterface {
     public boolean hasAccess(final Context ctx, String userId, String recordId) {
         ChaincodeStub stub = ctx.getStub();
 
-        // Get record
         byte[] recordBytes = stub.getState(recordId);
         if (recordBytes == null || recordBytes.length == 0) {
             return false;
@@ -255,13 +262,20 @@ public class RecordLedger implements ContractInterface {
 
         MedicalRecord record = MedicalRecord.fromJSONString(new String(recordBytes));
 
-        // Patient always has access to their own records
         if (record.getPatientId().equals(userId)) {
             return true;
         }
 
-        // Check if doctor has been granted access (would call ConsentManager)
-        // This is a simplified version - full implementation would invoke ConsentManager contract
+        // Check allowedRoles derived from ABE policy
+        String allowedRoles = record.getAllowedRoles();
+        if (allowedRoles != null && !allowedRoles.isEmpty()) {
+            for (String role : allowedRoles.split(",")) {
+                if (role.trim().equalsIgnoreCase(userId)) {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 }

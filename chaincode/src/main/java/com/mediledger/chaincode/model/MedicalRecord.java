@@ -41,6 +41,12 @@ public class MedicalRecord {
     @Property()
     private String status; // "ACTIVE", "ARCHIVED", "DELETED"
 
+    @Property()
+    private String abePolicy; // Serialised CP-ABE ciphertext (AES key encrypted per role)
+
+    @Property()
+    private String allowedRoles; // Comma-separated roles satisfying the policy
+
     private static final Gson gson = new Gson();
 
     public MedicalRecord() {
@@ -58,6 +64,15 @@ public class MedicalRecord {
         this.recordType = recordType;
         this.department = department;
         this.status = "ACTIVE";
+    }
+
+    public MedicalRecord(String recordId, String patientId, String ipfsCid,
+            String fileHash, String uploadedBy, String timestamp,
+            String recordType, String department,
+            String abePolicy, String allowedRoles) {
+        this(recordId, patientId, ipfsCid, fileHash, uploadedBy, timestamp, recordType, department);
+        this.abePolicy = abePolicy;
+        this.allowedRoles = allowedRoles;
     }
 
     // Getters and Setters
@@ -131,6 +146,22 @@ public class MedicalRecord {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getAbePolicy() {
+        return abePolicy;
+    }
+
+    public void setAbePolicy(String abePolicy) {
+        this.abePolicy = abePolicy;
+    }
+
+    public String getAllowedRoles() {
+        return allowedRoles;
+    }
+
+    public void setAllowedRoles(String allowedRoles) {
+        this.allowedRoles = allowedRoles;
     }
 
     // Serialization methods

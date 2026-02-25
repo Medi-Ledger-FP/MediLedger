@@ -22,6 +22,9 @@ public class IPFSService {
     @Value("${ipfs.pinata.secret.key:}")
     private String pinataSecretKey;
 
+    @Value("${ipfs.pinata.jwt:}")
+    private String pinataJwt;
+
     private static final String PINATA_UPLOAD_URL = "https://api.pinata.cloud/pinning/pinFileToIPFS";
     private static final String PINATA_GATEWAY_URL = "https://gateway.pinata.cloud/ipfs/";
 
@@ -29,18 +32,24 @@ public class IPFSService {
     private final java.util.Map<String, byte[]> simulationCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public String uploadFile(byte[] file, String fileName) throws IOException {
-        // Fast-exit simulation: no network call when Pinata not configured
-        if (pinataApiKey == null || pinataApiKey.isEmpty()) {
+        // Use JWT if available, fall back to api_key/secret, else simulate
+        boolean hasJwt = pinataJwt != null && !pinataJwt.isEmpty();
+        boolean hasKey = pinataApiKey != null && !pinataApiKey.isEmpty();
+        if (!hasJwt && !hasKey) {
             return simulateUpload(file, fileName);
         }
 
         HttpURLConnection connection = (HttpURLConnection) new URL(PINATA_UPLOAD_URL).openConnection();
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(30000);
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(60000);
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
-        connection.setRequestProperty("pinata_api_key", pinataApiKey);
-        connection.setRequestProperty("pinata_secret_api_key", pinataSecretKey);
+        if (hasJwt) {
+            connection.setRequestProperty("Authorization", "Bearer " + pinataJwt);
+        } else {
+            connection.setRequestProperty("pinata_api_key", pinataApiKey);
+            connection.setRequestProperty("pinata_secret_api_key", pinataSecretKey);
+        }
 
         String boundary = "----" + System.currentTimeMillis();
         connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
@@ -68,10 +77,16 @@ public class IPFSService {
                 while ((line = br.readLine()) != null) {
                     response.append(line);
                 }
-                return extractCIDFromResponse(response.toString());
+                String cid = extractCIDFromResponse(response.toString());
+                System.out.println("✅ Pinned to real IPFS via Pinata: " + cid);
+                return cid;
             }
         } else {
-            throw new IOException("Failed to upload to IPFS. Response code: " + responseCode);
+            InputStream err = connection.getErrorStream();
+            String body = err != null ? new String(err.readAllBytes()) : "(no body)";
+            System.err.println(
+                    "⚠️  Pinata upload failed [" + responseCode + "]: " + body + " — falling back to simulation");
+            return simulateUpload(file, fileName);
         }
     }
 

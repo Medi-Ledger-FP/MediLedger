@@ -1,6 +1,10 @@
 package com.mediledger.controller;
 
 import com.mediledger.service.EmergencyAccessService;
+import com.mediledger.service.FileService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -8,25 +12,16 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Emergency Access Controller
- *
- * REST API for the threshold-cryptography emergency access workflow:
- *
- * POST /api/emergency/request – Open an emergency access request
- * POST /api/emergency/approve/{id} – Stakeholder submits their key share
- * GET /api/emergency/request/{id} – Get request status
- * GET /api/emergency/patient/{pid} – List requests for a patient
- * GET /api/emergency/all – Admin: list all requests
- */
 @RestController
 @RequestMapping("/api/emergency")
 public class EmergencyController {
 
     private final EmergencyAccessService emergencyService;
+    private final FileService fileService;
 
-    public EmergencyController(EmergencyAccessService emergencyService) {
+    public EmergencyController(EmergencyAccessService emergencyService, FileService fileService) {
         this.emergencyService = emergencyService;
+        this.fileService = fileService;
     }
 
     /**
@@ -44,6 +39,7 @@ public class EmergencyController {
 
         String requesterId = extractUsername(authHeader);
         String patientId = body.get("patientId");
+        String recordId = body.getOrDefault("recordId", "UNKNOWN"); // which record to access
         String reason = body.get("reason");
         String requestedBy = body.getOrDefault("requestedBy", requesterId);
 
@@ -52,12 +48,13 @@ public class EmergencyController {
                     .body(Map.of("error", "patientId and reason are required"));
         }
 
-        EmergencyAccessService.EmergencyRequest req = emergencyService.openRequest(requesterId, patientId, reason,
-                requestedBy);
+        EmergencyAccessService.EmergencyRequest req = emergencyService.openRequest(
+                requesterId, patientId, recordId, reason, requestedBy);
 
         return ResponseEntity.ok(Map.of(
                 "requestId", req.requestId(),
                 "patientId", req.patientId(),
+                "recordId", req.recordId(),
                 "status", req.status().name(),
                 "threshold", req.threshold(),
                 "message", "Emergency request opened. Requires " + req.threshold() + " approvals.",
@@ -153,6 +150,37 @@ public class EmergencyController {
                         "timestamp", r.timestamp().toString()))
                 .toList();
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Emergency file download — uses the SSS-reconstructed AES key to decrypt.
+     * Only available once the emergency request is APPROVED (threshold met).
+     *
+     * GET /api/emergency/download/{requestId}
+     */
+    @GetMapping("/download/{requestId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")
+    public ResponseEntity<?> emergencyDownload(@PathVariable String requestId) {
+        EmergencyAccessService.GrantedAccess access = emergencyService.getGrantedAccess(requestId);
+        if (access == null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error",
+                            "Emergency access not granted for request " + requestId +
+                                    ". Reach threshold approvals first."));
+        }
+        try {
+            FileService.FileDownloadResult result = fileService.downloadWithEmergencyKey(
+                    access.recordId(), access.aesKeyHex());
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+            headers.setContentDispositionFormData("attachment",
+                    "emergency_record_" + access.recordId() + ".dat");
+            return new ResponseEntity<>(result.fileBytes, headers, HttpStatus.OK);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Emergency download failed: " + e.getMessage()));
+        }
     }
 
     private String extractUsername(String authHeader) {

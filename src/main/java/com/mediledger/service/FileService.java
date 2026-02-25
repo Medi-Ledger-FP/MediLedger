@@ -34,17 +34,20 @@ public class FileService {
     private final RecordService recordService;
     private final ABEService abeService;
     private final EmergencyAccessService emergencyService;
+    private final AuditService auditService;
 
     public FileService(EncryptionService encryptionService,
             IPFSService ipfsService,
             RecordService recordService,
             ABEService abeService,
-            EmergencyAccessService emergencyService) {
+            EmergencyAccessService emergencyService,
+            AuditService auditService) {
         this.encryptionService = encryptionService;
         this.ipfsService = ipfsService;
         this.recordService = recordService;
         this.abeService = abeService;
         this.emergencyService = emergencyService;
+        this.auditService = auditService;
     }
 
     // ── Upload ────────────────────────────────────────────────────────────────
@@ -84,16 +87,55 @@ public class FileService {
         String ipfsCid = ipfsService.uploadFile(encryptedBytes, file.getOriginalFilename());
 
         // ── Step 7: Store metadata on blockchain (includes ABE policy) ────
-        // The recordService stores: patientId, cid, hash, type, dept
-        // serialisedABE would be stored as additional metadata in production
-        System.out
-                .println("📋 ABE Policy: " + serialisedABE.substring(0, Math.min(60, serialisedABE.length())) + "...");
+        System.out.println("📋 ABE Policy (persisting to chain): "
+                + serialisedABE.substring(0, Math.min(60, serialisedABE.length())) + "...");
         String recordId = recordService.createRecord(
-                patientId, ipfsCid, fileHash, recordType, department);
+                patientId, ipfsCid, fileHash, recordType, department, serialisedABE);
 
         System.out.printf(
                 "✅ Upload complete: recordId=%s cid=%s policy=%s shares=%d%n",
                 recordId, ipfsCid, policy, sssShares.size());
+
+        // ── Audit log: record creation ─────────────────────────────────────
+        auditService.logAccess(patientId, uploaderRole != null ? uploaderRole : "PATIENT",
+                "CREATE_RECORD", recordId, patientId, "SUCCESS", "backend",
+                "File upload: " + recordType + " / " + department);
+
+        return new FileUploadResult(recordId, ipfsCid, fileHash,
+                String.join(",", policy), sssShares.size());
+    }
+
+    /**
+     * Upload with patient-defined access policy.
+     * 
+     * @param customAllowedRoles comma-separated roles (e.g. "DOCTOR,CARDIOLOGY"),
+     *                           or null for default
+     */
+    public FileUploadResult uploadFile(MultipartFile file, String patientId,
+            String recordType, String department,
+            String uploaderRole, String customAllowedRoles) throws Exception {
+        byte[] originalBytes = file.getBytes();
+        byte[] encryptedBytes = encryptionService.encrypt(originalBytes);
+        byte[] aesKey = encryptionService.getLastKey();
+
+        // Patient-controlled policy: override default with custom roles
+        Set<String> policy = abeService.buildPolicy(recordType, department,
+                uploaderRole != null ? uploaderRole : "PATIENT", customAllowedRoles);
+        ABEService.ABECiphertext abeCiphertext = abeService.encryptKey(aesKey, policy);
+        String serialisedABE = abeService.serialise(abeCiphertext);
+
+        List<String> sssShares = emergencyService.splitAndStoreKey(patientId, aesKey);
+        String fileHash = encryptionService.calculateHash(encryptedBytes);
+        String ipfsCid = ipfsService.uploadFile(encryptedBytes, file.getOriginalFilename());
+
+        System.out.println("📋 ABE Policy (patient-controlled: " + String.join(",", policy)
+                + ") | CID: " + ipfsCid);
+        String recordId = recordService.createRecord(
+                patientId, ipfsCid, fileHash, recordType, department, serialisedABE);
+
+        auditService.logAccess(patientId, uploaderRole != null ? uploaderRole : "PATIENT",
+                "CREATE_RECORD", recordId, patientId, "SUCCESS", "backend",
+                "Upload with custom policy: " + String.join(",", policy));
 
         return new FileUploadResult(recordId, ipfsCid, fileHash,
                 String.join(",", policy), sssShares.size());
@@ -149,6 +191,44 @@ public class FileService {
     /** Convenience: download without role check (PATIENT downloading own file) */
     public FileDownloadResult downloadFile(String recordId) throws Exception {
         return downloadFile(recordId, "PATIENT");
+    }
+
+    /**
+     * Emergency download: use the SSS-reconstructed AES key to decrypt a file.
+     * Called after threshold approvals grant emergency access.
+     *
+     * @param recordId  Medical record ID
+     * @param aesKeyHex Hex-encoded AES key from SSS reconstruction
+     */
+    public FileDownloadResult downloadWithEmergencyKey(String recordId, String aesKeyHex) throws Exception {
+        // 1. Get record metadata from blockchain / in-memory fallback
+        String recordJson = recordService.getRecord(recordId);
+        String ipfsCid = extractField(recordJson, "ipfsCid", null);
+        if (ipfsCid == null || ipfsCid.isBlank()) {
+            throw new IllegalStateException("Record not found or no IPFS CID: " + recordId);
+        }
+
+        // 2. Convert hex key back to bytes
+        byte[] aesKey = hexToBytes(aesKeyHex);
+
+        // 3. Download encrypted file from IPFS
+        byte[] encryptedBytes = ipfsService.downloadFile(ipfsCid);
+
+        // 4. Decrypt with the reconstructed AES key
+        byte[] decryptedBytes = encryptionService.decryptWithKey(encryptedBytes, aesKey);
+
+        System.out.println("🔓 Emergency download complete for record " + recordId);
+        return new FileDownloadResult(decryptedBytes, ipfsCid);
+    }
+
+    private byte[] hexToBytes(String hex) {
+        int len = hex.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hex.charAt(i), 16) << 4)
+                    + Character.digit(hex.charAt(i + 1), 16));
+        }
+        return data;
     }
 
     /** Delete file metadata from blockchain (IPFS is immutable). */

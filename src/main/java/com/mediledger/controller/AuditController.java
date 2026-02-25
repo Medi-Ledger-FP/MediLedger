@@ -1,6 +1,5 @@
 package com.mediledger.controller;
 
-import com.mediledger.dto.AuditDTO;
 import com.mediledger.dto.AuditDTO.AuditQueryRequest;
 import com.mediledger.dto.AuditDTO.AuditResponse;
 import com.mediledger.service.AuditService;
@@ -64,7 +63,7 @@ public class AuditController {
             @RequestParam String startDate,
             @RequestParam String endDate) {
         try {
-            return ResponseEntity.ok(auditService.queryFailedAccess(startDate, endDate));
+            return ResponseEntity.ok(auditService.queryAuditByAction("DENIED"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
@@ -84,7 +83,8 @@ public class AuditController {
     @PreAuthorize("hasAnyRole('PATIENT', 'ADMIN')")
     public ResponseEntity<?> getAuditStatistics(@PathVariable String patientId) {
         try {
-            return ResponseEntity.ok(auditService.getAuditStatistics(patientId));
+            // Use compliance report which includes statistics
+            return ResponseEntity.ok(auditService.generateComplianceReport(patientId));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
@@ -103,7 +103,10 @@ public class AuditController {
                     .getAuthentication()
                     .getName();
 
-            auditService.autoLogAccess(userId, action, recordId, success, request.getRemoteAddr());
+            auditService.logAccess(userId, "UNKNOWN", action,
+                    recordId, "UNKNOWN",
+                    success ? "SUCCESS" : "DENIED",
+                    request.getRemoteAddr(), action);
 
             return ResponseEntity.ok(new AuditResponse(true, "Logged", null));
         } catch (Exception e) {

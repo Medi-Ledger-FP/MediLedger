@@ -3,101 +3,115 @@ package com.mediledger.service;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Cipher;
+import java.io.*;
+import java.nio.file.*;
 import java.security.*;
+import java.security.spec.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Attribute-Based Encryption Service (CP-ABE Functional Equivalent)
  *
- * Implements the CONCEPT of Ciphertext-Policy Attribute-Based Encryption using
- * RSA key pairs per role/attribute. In a full CP-ABE system this would use
- * bilinear pairings (e.g., jpbc library). This implementation:
- *
- * 1. Each role/attribute has an RSA-2048 key pair (the "attribute authority").
- * 2. A "policy" is a set of allowed roles (e.g., {"DOCTOR", "ADMIN"}).
- * 3. The AES symmetric key is RSA-encrypted to every public key in the policy.
- * 4. Only a holder of a matching private key (i.e., a user with that role)
- * can decrypt the AES key and thus read the file.
- *
- * This gives us: patient-defined access policies, role-based decryption,
- * and no single-authority key escrow — matching the CP-ABE security model.
+ * Uses RSA-2048 key pairs per role/attribute.
+ * Keys are PERSISTED to data/abe-keys/ as DER files so that ABE
+ * ciphertext encrypted in one server session can be decrypted in
+ * any future session — fixes the critical ephemeral-key bug.
  */
 @Service
 public class ABEService {
 
-    // Master key store: role -> {publicKey, privateKey}
+    private static final String KEYS_DIR = "data/abe-keys";
+
     private final Map<String, KeyPair> attributeKeyPairs = new ConcurrentHashMap<>();
 
-    // Known roles / attributes
     private static final List<String> ALL_ATTRIBUTES = List.of(
             "PATIENT", "DOCTOR", "NURSE", "ADMIN",
             "CARDIOLOGY", "NEUROLOGY", "RADIOLOGY", "EMERGENCY");
 
-    public ABEService() throws NoSuchAlgorithmException {
-        // Generate an RSA key pair for every attribute at startup
+    public ABEService() throws Exception {
+        Path dir = Paths.get(KEYS_DIR);
+        Files.createDirectories(dir);
+
+        boolean anyMissing = ALL_ATTRIBUTES.stream()
+                .anyMatch(a -> !Files.exists(dir.resolve(a + ".priv")) ||
+                        !Files.exists(dir.resolve(a + ".pub")));
+
+        if (anyMissing) {
+            generateAndSaveKeys(dir);
+            System.out.println("✅  ABEService: generated " + ALL_ATTRIBUTES.size()
+                    + " RSA key pairs → persisted to " + KEYS_DIR);
+        } else {
+            loadKeysFromDisk(dir);
+            System.out.println("✅  ABEService: loaded " + attributeKeyPairs.size()
+                    + " RSA key pairs from " + KEYS_DIR + " (cross-restart decryption OK)");
+        }
+    }
+
+    // ── Key persistence ───────────────────────────────────────────────────────
+
+    private void generateAndSaveKeys(Path dir) throws Exception {
         KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
         gen.initialize(2048);
         for (String attr : ALL_ATTRIBUTES) {
-            attributeKeyPairs.put(attr, gen.generateKeyPair());
+            KeyPair kp = gen.generateKeyPair();
+            attributeKeyPairs.put(attr, kp);
+            Files.write(dir.resolve(attr + ".priv"), kp.getPrivate().getEncoded());
+            Files.write(dir.resolve(attr + ".pub"), kp.getPublic().getEncoded());
         }
-        System.out.println("✅  ABEService: generated " + ALL_ATTRIBUTES.size() + " attribute key pairs");
     }
 
+    private void loadKeysFromDisk(Path dir) throws Exception {
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        for (String attr : ALL_ATTRIBUTES) {
+            byte[] privBytes = Files.readAllBytes(dir.resolve(attr + ".priv"));
+            byte[] pubBytes = Files.readAllBytes(dir.resolve(attr + ".pub"));
+            PrivateKey priv = kf.generatePrivate(new PKCS8EncodedKeySpec(privBytes));
+            PublicKey pub = kf.generatePublic(new X509EncodedKeySpec(pubBytes));
+            attributeKeyPairs.put(attr, new KeyPair(pub, priv));
+        }
+    }
+
+    // ── Encrypt / Decrypt ─────────────────────────────────────────────────────
+
     /**
-     * Encrypt an AES key under a CP-ABE policy.
-     *
-     * @param aesKeyBytes Raw bytes of the AES symmetric key
-     * @param policy      Set of attributes/roles that satisfy the policy
-     *                    (e.g. Set.of("DOCTOR", "ADMIN"))
-     * @return ABECiphertext holding one RSA blob per policy attribute
+     * Encrypt an AES key under a CP-ABE policy (set of allowed roles).
      */
     public ABECiphertext encryptKey(byte[] aesKeyBytes, Set<String> policy) throws Exception {
         Map<String, byte[]> encryptedKeyMap = new LinkedHashMap<>();
         for (String attr : policy) {
             KeyPair kp = attributeKeyPairs.get(attr.toUpperCase());
-            if (kp == null) {
-                throw new IllegalArgumentException("Unknown attribute: " + attr);
-            }
-            byte[] encrypted = rsaEncrypt(aesKeyBytes, kp.getPublic());
-            encryptedKeyMap.put(attr.toUpperCase(), encrypted);
+            if (kp == null)
+                continue;
+            encryptedKeyMap.put(attr.toUpperCase(), rsaEncrypt(aesKeyBytes, kp.getPublic()));
         }
         return new ABECiphertext(policy, encryptedKeyMap);
     }
 
     /**
-     * Decrypt the AES key from an ABE ciphertext using the caller's role.
-     *
-     * @param ciphertext The ABE ciphertext produced by encryptKey()
-     * @param userRole   The calling user's role (their "attribute")
-     * @return The raw AES key bytes
-     * @throws SecurityException if the role doesn't satisfy the policy
+     * Decrypt the AES key — user must possess a role that satisfies the policy.
      */
     public byte[] decryptKey(ABECiphertext ciphertext, String userRole) throws Exception {
         String role = userRole.toUpperCase();
-        if (!ciphertext.policy().contains(role) && !ciphertext.policy().contains(userRole)) {
+        if (!ciphertext.policy().contains(role)) {
             throw new SecurityException(
                     "Access denied: role '" + userRole + "' does not satisfy policy " + ciphertext.policy());
         }
         byte[] encryptedAesKey = ciphertext.encryptedKeyMap().get(role);
-        if (encryptedAesKey == null) {
+        if (encryptedAesKey == null)
             throw new SecurityException("No key share for role: " + role);
-        }
-        KeyPair kp = attributeKeyPairs.get(role);
-        return rsaDecrypt(encryptedAesKey, kp.getPrivate());
+        return rsaDecrypt(encryptedAesKey, attributeKeyPairs.get(role).getPrivate());
     }
 
     /**
-     * Build a default policy for a given record type and department.
-     * This is what the patient's access rules translate to.
+     * Build a default access policy for the given record + uploader role.
+     * Patient and doctor always get access; admin always gets access.
      */
     public Set<String> buildPolicy(String recordType, String department, String ownerRole) {
         Set<String> policy = new LinkedHashSet<>();
         policy.add("ADMIN");
-        policy.add(ownerRole.toUpperCase()); // owner always has access
-        policy.add("DOCTOR"); // doctors always included in default policy
-
-        // Department-specific attribute
+        policy.add(ownerRole.toUpperCase());
+        policy.add("DOCTOR");
         if (department != null && attributeKeyPairs.containsKey(department.toUpperCase())) {
             policy.add(department.toUpperCase());
         }
@@ -105,8 +119,27 @@ public class ABEService {
     }
 
     /**
-     * Serialise an ABECiphertext to a storable string (Base64 per entry).
+     * Build a patient-defined access policy from a comma-separated role list.
+     * Always adds ADMIN for administrative access.
+     * If the list is empty or null, falls back to the default policy.
      */
+    public Set<String> buildPolicy(String recordType, String department,
+            String ownerRole, String customAllowedRoles) {
+        if (customAllowedRoles == null || customAllowedRoles.isBlank()) {
+            return buildPolicy(recordType, department, ownerRole);
+        }
+        Set<String> policy = new LinkedHashSet<>();
+        policy.add("ADMIN"); // Always include admin
+        for (String role : customAllowedRoles.split(",")) {
+            String r = role.trim().toUpperCase();
+            if (!r.isEmpty())
+                policy.add(r);
+        }
+        return policy;
+    }
+
+    // ── Serialisation ─────────────────────────────────────────────────────────
+
     public String serialise(ABECiphertext ct) {
         StringBuilder sb = new StringBuilder();
         sb.append(String.join(",", ct.policy())).append("|");
@@ -115,9 +148,6 @@ public class ABEService {
         return sb.toString();
     }
 
-    /**
-     * Deserialise a stored ABECiphertext string.
-     */
     public ABECiphertext deserialise(String raw) {
         String[] parts = raw.split("\\|", 2);
         Set<String> policy = new LinkedHashSet<>(Arrays.asList(parts[0].split(",")));
@@ -127,13 +157,14 @@ public class ABEService {
                 if (entry.isEmpty())
                     continue;
                 String[] kv = entry.split(":", 2);
-                map.put(kv[0], Base64.getDecoder().decode(kv[1]));
+                if (kv.length == 2)
+                    map.put(kv[0], Base64.getDecoder().decode(kv[1]));
             }
         }
         return new ABECiphertext(policy, map);
     }
 
-    // ── RSA helpers ──────────────────────────────────────────────────────────
+    // ── RSA helpers ───────────────────────────────────────────────────────────
 
     private byte[] rsaEncrypt(byte[] data, PublicKey pub) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
@@ -147,12 +178,6 @@ public class ABEService {
         return cipher.doFinal(data);
     }
 
-    // ── Data record ──────────────────────────────────────────────────────────
-
-    /**
-     * Represents an ABE ciphertext: the AES key encrypted under multiple
-     * attribute public keys, plus the access policy.
-     */
     public record ABECiphertext(
             Set<String> policy,
             Map<String, byte[]> encryptedKeyMap) {

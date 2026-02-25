@@ -2,6 +2,8 @@ package com.mediledger.service;
 
 import org.springframework.stereotype.Service;
 
+import java.io.*;
+import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,20 +27,25 @@ public class EmergencyAccessService {
 
     private static final int DEFAULT_TOTAL_SHARES = 5;
     private static final int DEFAULT_THRESHOLD = 3;
+    private static final String SHARES_DIR = "data/sss-shares";
 
     private final ShamirSecretSharingService sss;
     private final AuditService auditService;
 
-    // In-memory store of emergency requests
+    // In-memory request store (requests are session-scoped — not persisted)
     private final Map<String, EmergencyRequest> requests = new ConcurrentHashMap<>();
 
-    // Patient-key share registry: patientId -> list of encoded shares
-    // (In production, each share goes to a different stakeholder node)
+    // Once access is granted, store: requestId → GrantedAccess(recordId, keyHex)
+    private final Map<String, GrantedAccess> grantedAccessMap = new ConcurrentHashMap<>();
+
+    // Working cache: patientId → list of encoded shares (backed by disk)
     private final Map<String, List<String>> keyShareRegistry = new ConcurrentHashMap<>();
 
     public EmergencyAccessService(ShamirSecretSharingService sss, AuditService auditService) {
         this.sss = sss;
         this.auditService = auditService;
+        // Load any previously persisted shares into working cache
+        loadSharesFromDisk();
     }
 
     // ── Key Split (called at file upload time) ───────────────────────────────
@@ -58,9 +65,63 @@ public class EmergencyAccessService {
         }
 
         keyShareRegistry.put(patientId, encodedShares);
+        saveSharesToDisk(patientId, encodedShares); // persist to disk
         System.out.println("🔐 SSS: Stored " + DEFAULT_TOTAL_SHARES + " shares for patient " + patientId
-                + " (threshold=" + DEFAULT_THRESHOLD + ")");
+                + " (threshold=" + DEFAULT_THRESHOLD + ") — persisted to disk");
         return encodedShares;
+    }
+
+    // ── Disk persistence ──────────────────────────────────────────────────────
+
+    private void saveSharesToDisk(String patientId, List<String> shares) {
+        try {
+            Path dir = Paths.get(SHARES_DIR);
+            Files.createDirectories(dir);
+            Path file = dir.resolve(sanitise(patientId) + ".json");
+            StringBuilder json = new StringBuilder("[\n");
+            for (int i = 0; i < shares.size(); i++) {
+                json.append("  \"").append(shares.get(i)).append('"');
+                if (i < shares.size() - 1)
+                    json.append(',');
+                json.append('\n');
+            }
+            json.append(']');
+            Files.writeString(file, json.toString(), StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            System.err.println("⚠️  Cannot persist SSS shares for " + patientId + ": " + e.getMessage());
+        }
+    }
+
+    private void loadSharesFromDisk() {
+        try {
+            Path dir = Paths.get(SHARES_DIR);
+            if (Files.notExists(dir))
+                return;
+            Files.list(dir).filter(p -> p.toString().endsWith(".json")).forEach(p -> {
+                try {
+                    String raw = Files.readString(p);
+                    List<String> shares = new ArrayList<>();
+                    // Simple JSON array parse
+                    for (String part : raw.replaceAll("[\\[\\]\\n ]", "").split(",")) {
+                        String s = part.replace("\"", "").trim();
+                        if (!s.isEmpty())
+                            shares.add(s);
+                    }
+                    String patientId = p.getFileName().toString().replace(".json", "");
+                    keyShareRegistry.put(patientId, shares);
+                    System.out.println("📂 Loaded " + shares.size() + " SSS shares for patient " + patientId);
+                } catch (IOException e) {
+                    System.err.println("⚠️  Failed to load shares from " + p + ": " + e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            System.err.println("⚠️  Cannot load SSS shares from disk: " + e.getMessage());
+        }
+    }
+
+    private String sanitise(String patientId) {
+        return patientId.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
 
     // ── Emergency Request Flow ───────────────────────────────────────────────
@@ -69,20 +130,27 @@ public class EmergencyAccessService {
      * Step 1: Emergency requester opens a request.
      */
     public EmergencyRequest openRequest(String requesterId, String patientId,
-            String reason, String requestedBy) {
+            String recordId, String reason, String requestedBy) {
         String requestId = "EMRG-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         EmergencyRequest req = new EmergencyRequest(
-                requestId, patientId, requesterId, reason,
+                requestId, patientId, recordId, requesterId, reason,
                 requestedBy, Instant.now(), DEFAULT_THRESHOLD,
                 new ArrayList<>(), EmergencyStatus.PENDING);
         requests.put(requestId, req);
 
         // Audit log
         auditService.logAccess("EMERGENCY_REQUEST", requesterId, patientId,
-                "Emergency access requested: " + reason);
+                "Emergency access requested for record " + recordId + ": " + reason);
 
-        System.out.println("🚨 Emergency request " + requestId + " opened by " + requesterId);
+        System.out.println("🚨 Emergency request " + requestId + " opened by " + requesterId
+                + " for record " + recordId);
         return req;
+    }
+
+    /** Legacy overload without recordId */
+    public EmergencyRequest openRequest(String requesterId, String patientId,
+            String reason, String requestedBy) {
+        return openRequest(requesterId, patientId, "UNKNOWN", reason, requestedBy);
     }
 
     /**
@@ -143,7 +211,7 @@ public class EmergencyAccessService {
 
             // Update request status
             EmergencyRequest approved = new EmergencyRequest(
-                    req.requestId(), req.patientId(), req.requesterId(), req.reason(),
+                    req.requestId(), req.patientId(), req.recordId(), req.requesterId(), req.reason(),
                     req.requestedBy(), req.timestamp(), req.threshold(),
                     req.collectedShares(), EmergencyStatus.APPROVED);
             requests.put(req.requestId(), approved);
@@ -153,6 +221,9 @@ public class EmergencyAccessService {
 
             System.out.println("🔓 Emergency access GRANTED for request " + req.requestId()
                     + " — AES key reconstructed from " + req.collectedShares().size() + " shares");
+
+            // Persist granted access so the download endpoint can use it
+            grantedAccessMap.put(req.requestId(), new GrantedAccess(req.recordId(), keyHex));
 
             return new ApprovalResult(req.requestId(), true,
                     "EMERGENCY ACCESS GRANTED. Threshold met (" + req.threshold() + "/" + req.threshold() + ").",
@@ -166,6 +237,14 @@ public class EmergencyAccessService {
 
     public EmergencyRequest getRequest(String requestId) {
         return requests.get(requestId);
+    }
+
+    /**
+     * Returns the granted access (recordId + reconstructed AES key hex) for a
+     * completed request
+     */
+    public GrantedAccess getGrantedAccess(String requestId) {
+        return grantedAccessMap.get(requestId);
     }
 
     public List<EmergencyRequest> listRequests(String patientId) {
@@ -194,6 +273,7 @@ public class EmergencyAccessService {
     public record EmergencyRequest(
             String requestId,
             String patientId,
+            String recordId, // which medical record this concerns
             String requesterId,
             String reason,
             String requestedBy,
@@ -207,7 +287,14 @@ public class EmergencyAccessService {
             String requestId,
             boolean granted,
             String message,
-            String reconstructedKey // present only when granted == true
+            String reconstructedKey // hex AES key — present only when granted == true
     ) {
+    }
+
+    /**
+     * Holds the granted emergency access: which record and the AES key to decrypt
+     * it
+     */
+    public record GrantedAccess(String recordId, String aesKeyHex) {
     }
 }

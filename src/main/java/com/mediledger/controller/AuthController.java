@@ -40,38 +40,56 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
         try {
-            System.out.println("Registering new user: " + request.getUsername() + " with role: " + request.getRole());
+            System.out.println("Registering new user: " + request.getUsername()
+                    + " with role: " + request.getRole());
 
             // Check if user already exists
-            if (identityService.userExists(request.getUsername())) {
+            if (userCredentials.containsKey(request.getUsername())) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "User already exists"));
             }
 
-            // Register user with Fabric CA
-            String enrollmentSecret = identityService.registerUser(
-                    request.getUsername(),
-                    request.getRole());
+            // ── Attempt Fabric CA registration (X.509 certificates) ──────────────
+            try {
+                if (!identityService.userExists(request.getUsername())) {
+                    String enrollmentSecret = identityService.registerUser(
+                            request.getUsername(), request.getRole());
+                    identityService.enrollUser(request.getUsername(),
+                            enrollmentSecret, request.getRole());
+                    System.out.println("✅ Fabric CA enrollment complete for: "
+                            + request.getUsername());
+                }
+            } catch (Exception caEx) {
+                // CA unavailable — JWT-only mode: create minimal wallet dir so login works
+                System.err.println("⚠️  Fabric CA unavailable, JWT-only mode: " + caEx.getMessage());
+                try {
+                    java.nio.file.Path userPath = java.nio.file.Paths.get("data/wallet")
+                            .resolve(request.getUsername());
+                    java.nio.file.Files.createDirectories(userPath);
+                    java.nio.file.Files.writeString(
+                            userPath.resolve("metadata.json"),
+                            String.format("{\"mspId\":\"HealthcareOrgMSP\",\"role\":\"%s\",\"mode\":\"jwt-only\"}",
+                                    request.getRole().name()),
+                            java.nio.file.StandardOpenOption.CREATE,
+                            java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+                } catch (Exception walletEx) {
+                    System.err.println("⚠️  Wallet dir creation failed: " + walletEx.getMessage());
+                }
+            }
 
-            // Enroll user and generate X.509 certificate
-            identityService.enrollUser(request.getUsername(), enrollmentSecret, request.getRole());
-
-            // Store encrypted password AND role for login
-            userCredentials.put(
-                    request.getUsername(),
+            // ── Always store credentials + issue JWT ──────────────────────────────
+            userCredentials.put(request.getUsername(),
                     passwordEncoder.encode(request.getPassword()));
             userRoles.put(request.getUsername(), request.getRole().name());
 
-            // Generate JWT token
             String token = jwtService.generateToken(
-                    request.getUsername(),
-                    request.getRole().name());
+                    request.getUsername(), request.getRole().name());
 
             AuthResponse response = AuthResponse.builder()
                     .token(token)
                     .username(request.getUsername())
                     .role(request.getRole())
-                    .message("User registered successfully with blockchain identity")
+                    .message("User registered successfully")
                     .build();
 
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
