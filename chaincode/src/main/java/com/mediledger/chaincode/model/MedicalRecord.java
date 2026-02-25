@@ -47,6 +47,9 @@ public class MedicalRecord {
     @Property()
     private String allowedRoles; // Comma-separated roles satisfying the policy
 
+    @Property()
+    private String docType = "MEDICAL_RECORD"; // CouchDB docType for rich queries
+
     private static final Gson gson = new Gson();
 
     public MedicalRecord() {
@@ -64,6 +67,7 @@ public class MedicalRecord {
         this.recordType = recordType;
         this.department = department;
         this.status = "ACTIVE";
+        this.docType = "MEDICAL_RECORD";
     }
 
     public MedicalRecord(String recordId, String patientId, String ipfsCid,

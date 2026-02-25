@@ -243,6 +243,32 @@ public class RecordLedger implements ContractInterface {
     }
 
     /**
+     * Query all MEDICAL_RECORD entries via CouchDB rich query (precise docType
+     * filter)
+     * Used by AdminController to produce accurate record counts.
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public String queryAllMedicalRecords(final Context ctx) {
+        ChaincodeStub stub = ctx.getStub();
+
+        String queryString = "{\"selector\":{\"docType\":\"MEDICAL_RECORD\"},\"sort\":[{\"timestamp\":\"desc\"}]}";
+
+        List<MedicalRecord> records = new ArrayList<>();
+        QueryResultsIterator<KeyValue> results = stub.getQueryResult(queryString);
+
+        for (KeyValue result : results) {
+            try {
+                MedicalRecord record = MedicalRecord.fromJSONString(result.getStringValue());
+                records.add(record);
+            } catch (Exception e) {
+                // Skip malformed entries
+            }
+        }
+
+        return gson.toJson(records);
+    }
+
+    /**
      * Check if user has access to record
      * Helper method used by other contracts
      *

@@ -1,20 +1,64 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 
 function AdminDashboard() {
     const navigate = useNavigate();
+    const username = localStorage.getItem('username') || 'Administrator';
 
-    const stats = {
-        totalUsers: 156,
-        totalRecords: 1243,
-        activeConsents: 89,
-        auditEntries: 5621
-    };
+    const [stats, setStats] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            navigate('/login');
+            return;
+        }
+
+        fetch('http://localhost:8080/api/admin/stats', {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then((data) => {
+                setStats(data);
+                setLoading(false);
+            })
+            .catch((err) => {
+                setError(err.message);
+                setLoading(false);
+            });
+    }, [navigate]);
 
     const handleLogout = () => {
         localStorage.clear();
         window.location.href = '/';
+    };
+
+    const formatTime = (iso) => {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+            if (diff < 60) return `${diff}s ago`;
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return d.toLocaleDateString();
+        } catch {
+            return iso;
+        }
+    };
+
+    const typeLabel = (type) => {
+        switch (type) {
+            case 'RECORD_UPLOAD': return { icon: '✅', cls: 'success', text: 'RECORD_UPLOAD' };
+            case 'RECORD_ACCESS': return { icon: '🔍', cls: 'info', text: 'RECORD_ACCESS' };
+            default: return { icon: '⚠️', cls: 'warning', text: type };
+        }
     };
 
     return (
@@ -22,76 +66,102 @@ function AdminDashboard() {
             <nav className="navbar">
                 <h2>⚙️ Admin Dashboard</h2>
                 <div>
-                    <span className="username">Administrator</span>
+                    <span className="username">{username}</span>
                     <button onClick={handleLogout} className="btn-logout">Logout</button>
                 </div>
             </nav>
 
             <div className="dashboard-content">
-                {/* Statistics */}
-                <div className="stats-grid">
-                    <div className="stat-card">
-                        <div className="stat-number">{stats.totalUsers}</div>
-                        <div className="stat-label">Total Users</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-number">{stats.totalRecords}</div>
-                        <div className="stat-label">Medical Records</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-number">{stats.activeConsents}</div>
-                        <div className="stat-label">Active Consents</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-number">{stats.auditEntries}</div>
-                        <div className="stat-label">Audit Entries</div>
-                    </div>
-                </div>
+                {loading && <p style={{ textAlign: 'center', padding: '2rem' }}>Loading blockchain data…</p>}
 
-                {/* Recent Activity */}
-                <div className="card">
-                    <h3>📊 Recent System Activity</h3>
-                    <div className="activity-list">
-                        <div className="activity-item">
-                            <span className="activity-type success">✅ RECORD_UPLOAD</span>
-                            <span>patient123 uploaded Lab Report</span>
-                            <span className="activity-time">2 minutes ago</span>
-                        </div>
-                        <div className="activity-item">
-                            <span className="activity-type info">🔍 RECORD_ACCESS</span>
-                            <span>dr_smith accessed patient456's X-Ray</span>
-                            <span className="activity-time">15 minutes ago</span>
-                        </div>
-                        <div className="activity-item">
-                            <span className="activity-type warning">⚠️ ACCESS_REQUEST</span>
-                            <span>dr_jones requested access to patient789</span>
-                            <span className="activity-time">1 hour ago</span>
-                        </div>
+                {error && (
+                    <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
+                        <p>⚠️ Failed to load stats: {error}</p>
                     </div>
-                </div>
+                )}
 
-                {/* System Health */}
-                <div className="card">
-                    <h3>💚 System Health</h3>
-                    <div className="health-grid">
-                        <div className="health-item">
-                            <span className="health-indicator green"></span>
-                            <strong>Blockchain Network:</strong> Online
+                {stats && (
+                    <>
+                        {/* Statistics */}
+                        <div className="stats-grid">
+                            <div className="stat-card">
+                                <div className="stat-number">{stats.totalRecords}</div>
+                                <div className="stat-label">Medical Records</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-number">{stats.totalAuditEntries}</div>
+                                <div className="stat-label">Audit Entries (30d)</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-number">
+                                    {stats.recentActivity ? stats.recentActivity.length : 0}
+                                </div>
+                                <div className="stat-label">Activity (24h)</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-number"
+                                    style={{ color: stats.blockchainOnline ? '#22c55e' : '#ef4444' }}>
+                                    {stats.blockchainOnline ? '●' : '○'}
+                                </div>
+                                <div className="stat-label">Blockchain Status</div>
+                            </div>
                         </div>
-                        <div className="health-item">
-                            <span className="health-indicator green"></span>
-                            <strong>IPFS Storage:</strong> Operational
+
+                        {/* Recent Activity */}
+                        <div className="card">
+                            <h3>📊 Recent System Activity (24h)</h3>
+                            <div className="activity-list">
+                                {stats.recentActivity && stats.recentActivity.length > 0
+                                    ? stats.recentActivity.map((item, i) => {
+                                        const { icon, cls, text } = typeLabel(item.type);
+                                        return (
+                                            <div className="activity-item" key={i}>
+                                                <span className={`activity-type ${cls}`}>
+                                                    {icon} {text}
+                                                </span>
+                                                <span>
+                                                    {item.user}
+                                                    {item.recordId && item.recordId !== 'UNKNOWN'
+                                                        ? ` — record ${item.recordId.substring(0, 8)}…`
+                                                        : ''}
+                                                    {' '}
+                                                    <span style={{
+                                                        color: item.result === 'SUCCESS' ? '#22c55e' : '#ef4444',
+                                                        fontWeight: 600
+                                                    }}>
+                                                        {item.result}
+                                                    </span>
+                                                </span>
+                                                <span className="activity-time">
+                                                    {formatTime(item.timestamp)}
+                                                </span>
+                                            </div>
+                                        );
+                                    })
+                                    : <p style={{ color: '#9ca3af', padding: '1rem 0' }}>
+                                        No activity in the last 24 hours.
+                                    </p>
+                                }
+                            </div>
                         </div>
-                        <div className="health-item">
-                            <span className="health-indicator green"></span>
-                            <strong>Encryption Service:</strong> Active
+
+                        {/* System Health */}
+                        <div className="card">
+                            <h3>💚 System Health</h3>
+                            <div className="health-grid">
+                                {Object.entries(stats.systemHealth || {}).map(([key, val]) => {
+                                    const ok = val === 'ONLINE' || val === 'OPERATIONAL' || val === 'ACTIVE' || val === 'SYNCED';
+                                    return (
+                                        <div className="health-item" key={key}>
+                                            <span className={`health-indicator ${ok ? 'green' : 'yellow'}`}></span>
+                                            <strong>{key.charAt(0).toUpperCase() + key.slice(1)}:</strong>&nbsp;{val}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                        <div className="health-item">
-                            <span className="health-indicator yellow"></span>
-                            <strong>Database:</strong> Syncing
-                        </div>
-                    </div>
-                </div>
+                    </>
+                )}
             </div>
         </div>
     );

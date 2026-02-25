@@ -29,7 +29,7 @@ fabric:
       name: peer0.healthcare.mediledger.com
   wallet:
     type: file
-    path: wallet
+    path: wallet/admin_final
 
 # JWT Configuration
 jwt:

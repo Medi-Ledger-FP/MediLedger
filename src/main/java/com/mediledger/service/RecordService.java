@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -35,24 +36,24 @@ public class RecordService {
         String recordId = UUID.randomUUID().toString();
         String abe = (serialisedABE != null) ? serialisedABE : "";
 
-        // Try live blockchain first
-        if (fabricGateway.isAvailable()) {
-            try {
-                fabricGateway.submitTransaction("createRecord",
-                        recordId, patientId, ipfsCid, fileHash, recordType, department, abe);
-                System.out.println(
-                        "✅ Record committed to blockchain: " + recordId + " [ABE policy length=" + abe.length() + "]");
-                // Also store in memory for quick reads
-                storeInMemory(recordId, patientId, ipfsCid, fileHash, recordType, department, abe);
-                return recordId;
-            } catch (Exception e) {
-                System.err.println("⚠️  Chaincode submit failed, falling back to memory: " + e.getMessage());
-            }
-        }
-
-        // Fallback: in-memory only
+        // Store in-memory IMMEDIATELY — response returns to client at once
         storeInMemory(recordId, patientId, ipfsCid, fileHash, recordType, department, abe);
         System.out.println("📝 Record stored in-memory: " + recordId);
+
+        // Async blockchain write — fire and forget, does NOT block HTTP response
+        if (fabricGateway.isAvailable()) {
+            final String finalAbe = abe;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    fabricGateway.submitTransaction("createRecord",
+                            recordId, patientId, ipfsCid, fileHash, recordType, department, finalAbe);
+                    System.out.println("✅ Record committed to blockchain (async): " + recordId);
+                } catch (Exception e) {
+                    System.err.println("⚠️  Async blockchain write failed (in-memory active): " + e.getMessage());
+                }
+            });
+        }
+
         return recordId;
     }
 

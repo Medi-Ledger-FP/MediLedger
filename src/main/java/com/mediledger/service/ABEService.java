@@ -130,6 +130,9 @@ public class ABEService {
         }
         Set<String> policy = new LinkedHashSet<>();
         policy.add("ADMIN"); // Always include admin
+        if (ownerRole != null && !ownerRole.isBlank()) {
+            policy.add(ownerRole.toUpperCase()); // Owner always gets access to their own file
+        }
         for (String role : customAllowedRoles.split(",")) {
             String r = role.trim().toUpperCase();
             if (!r.isEmpty())

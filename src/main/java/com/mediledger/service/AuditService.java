@@ -68,7 +68,8 @@ public class AuditService {
     public String queryAuditLog(String patientId, String startDate, String endDate) {
         if (fabricGateway != null && fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.evaluateTransaction("queryAuditLogs", patientId);
+                return fabricGateway.evaluateContractTransaction(
+                        "AuditTrail", "queryAuditLog", patientId, startDate, endDate);
             } catch (Exception e) {
                 System.err.println("⚠️  Audit query failed: " + e.getMessage());
             }
@@ -82,7 +83,10 @@ public class AuditService {
     public String queryAuditByAction(String action) {
         if (fabricGateway != null && fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.evaluateContractTransaction("AuditTrail", "queryByAction", action);
+                String now = java.time.Instant.now().toString();
+                String thirtyDays = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS).toString();
+                return fabricGateway.evaluateContractTransaction(
+                        "AuditTrail", "queryByAction", action, thirtyDays, now);
             } catch (Exception e) {
                 System.err.println("⚠️  Audit query failed: " + e.getMessage());
             }
