@@ -41,6 +41,10 @@ public class IdentityService {
         this.fabricConfig = fabricConfig;
     }
 
+    public Path getWalletPath() {
+        return this.walletPath;
+    }
+
     /**
      * Enrolls the admin user with the CA (bootstrap operation)
      * This should be called once during initial setup

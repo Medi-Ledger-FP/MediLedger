@@ -43,6 +43,7 @@ public class SecurityConfig {
                         // Public endpoints
                         .requestMatchers(
                                 "/api/auth/register",
+                                "/api/auth/register-initial-admin",
                                 "/api/auth/login",
                                 "/api/identity/enroll-admin")
                         .permitAll()
