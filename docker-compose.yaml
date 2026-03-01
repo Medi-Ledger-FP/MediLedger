@@ -88,7 +88,7 @@ services:
       - peer0.healthcare.mediledger.com:/var/hyperledger/production
       - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/msp:/etc/hyperledger/fabric/msp
       - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/tls:/etc/hyperledger/fabric/tls
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /root
     command: peer node start
     ports:

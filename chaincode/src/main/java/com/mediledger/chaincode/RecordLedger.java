@@ -129,10 +129,9 @@ public class RecordLedger implements ContractInterface {
     public String queryRecordsByPatient(final Context ctx, String patientId) {
         ChaincodeStub stub = ctx.getStub();
 
-        // Build CouchDB query
+        // Build CouchDB query (stripped sort to avoid missing index errors)
         String queryString = String.format(
-                "{\"selector\":{\"patientId\":\"%s\",\"status\":\"ACTIVE\"}," +
-                        "\"sort\":[{\"timestamp\":\"desc\"}]}",
+                "{\"selector\":{\"patientId\":\"%s\",\"status\":\"ACTIVE\"}}",
                 patientId);
 
         List<MedicalRecord> records = new ArrayList<>();
@@ -303,5 +302,36 @@ public class RecordLedger implements ContractInterface {
         }
 
         return false;
+    }
+
+    /**
+     * Convenience method — writes an audit log entry to the ledger via the default
+     * (RecordLedger) contract.
+     * AuditService calls this as submitTransaction("submitAuditLog", ...) on the
+     * default contract.
+     * Delegates storage to the same ledger state used by AuditTrail.
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public String submitAuditLog(final Context ctx, String auditId, String userId,
+            String userRole, String action, String recordId,
+            String patientId, String result, String reason) {
+        ChaincodeStub stub = ctx.getStub();
+
+        String timestamp = Instant.now().toString();
+        String auditKey = "AUDIT_" + auditId;
+
+        // Build a simple JSON audit record
+        String auditJson = String.format(
+                "{\"auditId\":\"%s\",\"timestamp\":\"%s\",\"userId\":\"%s\","
+                        + "\"userRole\":\"%s\",\"action\":\"%s\",\"recordId\":\"%s\","
+                        + "\"patientId\":\"%s\",\"result\":\"%s\",\"reason\":\"%s\"}",
+                auditId, timestamp, userId, userRole,
+                action, recordId, patientId, result,
+                reason != null ? reason.replace("\"", "'") : "");
+
+        stub.putState(auditKey, auditJson.getBytes());
+        stub.setEvent("AuditLogged", auditJson.getBytes());
+        System.out.println("Audit written to ledger: " + action + " by " + userId + " → " + result);
+        return auditJson;
     }
 }

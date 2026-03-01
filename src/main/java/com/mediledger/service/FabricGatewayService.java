@@ -151,7 +151,7 @@ public class FabricGatewayService {
         String[] candidates = {
                 walletPath + "/" + ADMIN_USER + "/signcerts/cert.pem",
                 walletPath + "/" + ADMIN_USER + ".id",
-                "fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/users/Admin@healthcare.mediledger.com/msp/signcerts/cert.pem"
+                "fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/users/Admin@healthcare.mediledger.com/msp/signcerts/Admin@healthcare.mediledger.com-cert.pem"
         };
         for (String p : candidates) {
             Path path = Paths.get(p);

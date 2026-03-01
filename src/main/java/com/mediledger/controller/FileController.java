@@ -1,8 +1,10 @@
 package com.mediledger.controller;
 
 import com.mediledger.service.AuditService;
+import com.mediledger.service.ConsentService;
 import com.mediledger.service.FabricGatewayService;
 import com.mediledger.service.FileService;
+import com.mediledger.service.RecordService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -19,12 +21,18 @@ public class FileController {
     private final FileService fileService;
     private final AuditService auditService;
     private final FabricGatewayService fabricGateway;
+    private final ConsentService consentService;
+    private final RecordService recordService;
 
     public FileController(FileService fileService, AuditService auditService,
-            FabricGatewayService fabricGateway) {
+            FabricGatewayService fabricGateway,
+            ConsentService consentService,
+            RecordService recordService) {
         this.fileService = fileService;
         this.auditService = auditService;
         this.fabricGateway = fabricGateway;
+        this.consentService = consentService;
+        this.recordService = recordService;
     }
 
     /**
@@ -88,24 +96,46 @@ public class FileController {
                                         + role + " / " + userId));
                     }
                 } catch (Exception ex) {
-                    // Blockchain unavailable — fall through to ABE check
-                    System.err.println("⚠️  hasAccess check failed, using ABE fallback: " + ex.getMessage());
+                    // Blockchain unavailable — fall through to consent + ABE check
+                    System.err.println("⚠️  hasAccess check failed, using consent+ABE fallback: " + ex.getMessage());
+                }
+            }
+
+            // ── Consent gate (DOCTOR only) ────────────────────────────────────────
+            // PATIENT downloads their own files, ADMIN has master key via ABE.
+            // DOCTOR must have explicit patient consent per record.
+            if ("DOCTOR".equals(role)) {
+                String patientId = recordService.getPatientIdForRecord(recordId);
+                if (patientId != null) {
+                    boolean hasConsent = consentService.checkAccess(userId, recordId, patientId);
+                    if (!hasConsent) {
+                        auditService.logAccess(userId, role, "VIEW_RECORD",
+                                recordId, patientId, "DENIED", "HTTP",
+                                "No patient consent for doctor " + userId);
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                                .body(new ErrorResponse(
+                                        "Access denied: Patient has not granted you consent for this record. "
+                                                + "Ask the patient to go to their dashboard and grant access "
+                                                + "to your username (" + userId + ")."));
+                    }
                 }
             }
 
             // ── ABE decryption + IPFS download ────────────────────────────────────
             FileService.FileDownloadResult result = fileService.downloadFile(recordId, role);
 
+            String patientId = recordService.getPatientIdForRecord(recordId);
             auditService.logAccess(userId, role, "VIEW_RECORD",
-                    recordId, "UNKNOWN", "SUCCESS", "HTTP", "File download");
+                    recordId, patientId != null ? patientId : "UNKNOWN", "SUCCESS", "HTTP", "File download");
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
             headers.setContentDispositionFormData("attachment", "medical_record_" + recordId + ".dat");
             return new ResponseEntity<>(result.fileBytes, headers, HttpStatus.OK);
         } catch (Exception e) {
+            String patientId = recordService.getPatientIdForRecord(recordId);
             auditService.logAccess(userId, role, "VIEW_RECORD",
-                    recordId, "UNKNOWN", "DENIED", "HTTP",
+                    recordId, patientId != null ? patientId : "UNKNOWN", "DENIED", "HTTP",
                     "Download failed: " + e.getMessage());
             return ResponseEntity.badRequest().body(
                     new ErrorResponse("Download failed: " + e.getMessage()));
@@ -120,7 +150,6 @@ public class FileController {
     @PreAuthorize("hasAnyRole('PATIENT', 'DOCTOR', 'ADMIN')")
     public ResponseEntity<?> getFileMetadata(@PathVariable String recordId) {
         try {
-            // TODO: Get from blockchain
             return ResponseEntity.ok(new MetadataResponse(
                     recordId,
                     "QmSampleCID",

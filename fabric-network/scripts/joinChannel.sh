@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 CHANNEL_NAME="healthcarechannel"
-ORDERER_URL="orderer.mediledger.com:7050"
+ORDERER_URL="localhost:7050"
 FABRIC_CFG_PATH="${PWD}/fabric-network"
 GENESIS_BLOCK="${FABRIC_CFG_PATH}/channel-artifacts/genesis.block"
 
@@ -31,8 +31,11 @@ fi
 # Set environment for peer0.healthcare.mediledger.com
 export CORE_PEER_TLS_ENABLED=false
 export CORE_PEER_LOCALMSPID="HealthcareOrgMSP"
-export CORE_PEER_MSPCONFIGPATH=${PWD}/wallet/admin
-export CORE_PEER_ADDRESS=peer0.healthcare.mediledger.com:7051
+export CORE_PEER_MSPCONFIGPATH=${PWD}/fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/users/Admin@healthcare.mediledger.com/msp
+export CORE_PEER_ADDRESS=localhost:7051
+
+# Peer commands require core.yaml which is in fabric-samples/config
+export FABRIC_CFG_PATH=${PWD}/fabric-samples/config
 
 echo -e "${YELLOW}[1/3] Joining peer0.healthcare.mediledger.com to '${CHANNEL_NAME}'...${NC}"
 peer channel join -b ${GENESIS_BLOCK}
@@ -58,12 +61,12 @@ echo ""
 echo -e "${YELLOW}[3/3] Updating anchor peer configuration...${NC}"
 
 # Generate anchor peer update transaction
-ANCHOR_TX="${FABRIC_CFG_PATH}/channel-artifacts/HealthcareOrgMSPanchors.tx"
+ANCHOR_TX="${PWD}/fabric-network/channel-artifacts/HealthcareOrgMSPanchors.tx"
 configtxgen -profile HealthcareChannel \
     -outputAnchorPeersUpdate ${ANCHOR_TX} \
     -channelID ${CHANNEL_NAME} \
     -asOrg HealthcareOrgMSP \
-    -configPath ${FABRIC_CFG_PATH}
+    -configPath ${PWD}/fabric-network
 
 # Update anchor peer
 peer channel update \

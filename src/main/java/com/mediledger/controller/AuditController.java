@@ -8,6 +8,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
+import java.util.Map;
 
 /**
  * REST Controller for Audit Logging
@@ -44,14 +46,33 @@ public class AuditController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
+            // Try blockchain first; fall back to in-memory log list
+            List<Map<String, String>> logs = auditService.getLogsByPatient(patientId);
+            if (!logs.isEmpty()) {
+                return ResponseEntity.ok(logs);
+            }
             if (startDate == null) {
                 startDate = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS).toString();
             }
             if (endDate == null) {
                 endDate = java.time.Instant.now().toString();
             }
-
             return ResponseEntity.ok(auditService.queryAuditLog(patientId, startDate, endDate));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Admin-only: get the most recent 100 audit events across all patients.
+     * GET /api/audit/recent
+     */
+    @GetMapping("/recent")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getRecentAuditLogs(
+            @RequestParam(defaultValue = "100") int max) {
+        try {
+            return ResponseEntity.ok(auditService.getRecentLogs(max));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }

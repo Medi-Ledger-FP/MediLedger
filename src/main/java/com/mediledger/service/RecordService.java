@@ -45,11 +45,22 @@ public class RecordService {
             final String finalAbe = abe;
             CompletableFuture.runAsync(() -> {
                 try {
-                    fabricGateway.submitTransaction("createRecord",
+                    fabricGateway.submitContractTransaction("RecordLedger", "createRecord",
                             recordId, patientId, ipfsCid, fileHash, recordType, department, finalAbe);
-                    System.out.println("✅ Record committed to blockchain (async): " + recordId);
+                    System.out.println("✅ Record committed to blockchain: " + recordId);
+                } catch (org.hyperledger.fabric.client.EndorseException e) {
+                    // EndorseException carries the actual peer/chaincode error message
+                    System.err.println("⚠️  Chaincode ENDORSE failed for createRecord:");
+                    System.err.println("   Message: " + e.getMessage());
+                    System.err.println("   gRPC Status: " + e.getStatus().getCode()
+                            + " | " + e.getStatus().getDescription());
+                    if (e.getCause() != null) {
+                        System.err.println("   Cause: " + e.getCause().getMessage());
+                    }
+                    System.err.println("   → Falling back to in-memory (record still saved).");
                 } catch (Exception e) {
                     System.err.println("⚠️  Async blockchain write failed (in-memory active): " + e.getMessage());
+                    System.err.println("   Full cause: " + (e.getCause() != null ? e.getCause().getMessage() : "none"));
                 }
             });
         }
@@ -69,7 +80,7 @@ public class RecordService {
     public String getRecord(String recordId) {
         if (fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.evaluateTransaction("getRecord", recordId);
+                return fabricGateway.evaluateContractTransaction("RecordLedger", "getRecord", recordId);
             } catch (Exception e) {
                 System.err.println("⚠️  Chaincode query failed: " + e.getMessage());
             }
@@ -81,12 +92,21 @@ public class RecordService {
     }
 
     /**
+     * Get the patientId for a given recordId from the in-memory store.
+     * Used by the consent gate in FileController.
+     */
+    public String getPatientIdForRecord(String recordId) {
+        Map<String, String> record = records.get(recordId);
+        return record != null ? record.get("patientId") : null;
+    }
+
+    /**
      * Query all records for a patient — blockchain or in-memory
      */
     public String getRecordsByPatient(String patientId) {
         if (fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.evaluateTransaction("queryRecordsByPatient", patientId);
+                return fabricGateway.evaluateContractTransaction("RecordLedger", "queryRecordsByPatient", patientId);
             } catch (Exception e) {
                 System.err.println("⚠️  Chaincode query failed: " + e.getMessage());
             }
@@ -109,7 +129,8 @@ public class RecordService {
     public String updateRecordCID(String recordId, String newIpfsCid, String newFileHash) {
         if (fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.submitTransaction("updateRecordCID", recordId, newIpfsCid, newFileHash);
+                return fabricGateway.submitContractTransaction("RecordLedger", "updateRecordCID", recordId, newIpfsCid,
+                        newFileHash);
             } catch (Exception e) {
                 System.err.println("⚠️  Chaincode submit failed: " + e.getMessage());
             }
@@ -128,7 +149,7 @@ public class RecordService {
     public String deleteRecord(String recordId) {
         if (fabricGateway.isAvailable()) {
             try {
-                return fabricGateway.submitTransaction("deleteRecord", recordId);
+                return fabricGateway.submitContractTransaction("RecordLedger", "deleteRecord", recordId);
             } catch (Exception e) {
                 System.err.println("⚠️  Chaincode submit failed: " + e.getMessage());
             }

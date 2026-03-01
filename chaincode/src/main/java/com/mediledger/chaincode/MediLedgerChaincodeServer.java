@@ -40,6 +40,31 @@ public class MediLedgerChaincodeServer {
 
         // -- Start chaincode server -------------------------------------------
         ContractRouter router = new ContractRouter(args);
+
+        try {
+            java.lang.reflect.Method getRegistry = org.hyperledger.fabric.contract.ContractRouter.class
+                    .getDeclaredMethod("getRoutingRegistry");
+            getRegistry.setAccessible(true);
+            Object registry = getRegistry.invoke(router);
+            java.lang.reflect.Method addContract = registry.getClass().getMethod("addNewContract", Class.class);
+
+            Class<?>[] contracts = { RecordLedger.class, AuditTrail.class, ConsentManager.class };
+            for (Class<?> contractClass : contracts) {
+                Object contractDef = addContract.invoke(registry, contractClass);
+                java.lang.reflect.Method addTxFunction = contractDef.getClass().getMethod("addTxFunction",
+                        java.lang.reflect.Method.class);
+                for (java.lang.reflect.Method m : contractClass.getMethods()) {
+                    if (m.getAnnotation(org.hyperledger.fabric.contract.annotation.Transaction.class) != null) {
+                        addTxFunction.invoke(contractDef, m);
+                    }
+                }
+            }
+            System.out.println("✅ Registered all chaincode contracts and TxFunctions explicitly via Reflection");
+        } catch (Exception e) {
+            System.err.println("❌ Failed to manually register contracts: " + e.getMessage());
+            e.printStackTrace();
+        }
+
         new NettyChaincodeServer(router, props).start();
     }
 }

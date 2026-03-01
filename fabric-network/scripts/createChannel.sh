@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 CHANNEL_NAME="healthcarechannel"
-ORDERER_URL="orderer.mediledger.com:7050"
+ORDERER_URL="localhost:7050"
 FABRIC_CFG_PATH="${PWD}/fabric-network"
 CHANNEL_TX_FILE="${FABRIC_CFG_PATH}/channel-artifacts/${CHANNEL_NAME}.tx"
 GENESIS_BLOCK="${FABRIC_CFG_PATH}/channel-artifacts/genesis.block"
@@ -46,8 +46,9 @@ echo ""
 # Set environment for peer0.healthcare.mediledger.com
 export CORE_PEER_TLS_ENABLED=false
 export CORE_PEER_LOCALMSPID="HealthcareOrgMSP"
-export CORE_PEER_MSPCONFIGPATH=${PWD}/wallet/admin
-export CORE_PEER_ADDRESS=peer0.healthcare.mediledger.com:7051
+export CORE_PEER_MSPCONFIGPATH=${PWD}/fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/users/Admin@healthcare.mediledger.com/msp
+export CORE_PEER_ADDRESS=localhost:7051
+export FABRIC_CFG_PATH=${PWD}/fabric-samples/config
 
 echo -e "${YELLOW}[3/4] Creating channel '${CHANNEL_NAME}'...${NC}"
 peer channel create \

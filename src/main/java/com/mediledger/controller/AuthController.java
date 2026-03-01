@@ -7,6 +7,7 @@ import com.mediledger.service.IdentityService;
 import com.mediledger.service.JwtService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,13 +36,32 @@ public class AuthController {
     }
 
     /**
-     * Register a new user (patient or doctor) with the blockchain network
+     * Register a new user.
+     * PATIENT: open to anyone (self-registration).
+     * DOCTOR / ADMIN: requires the caller to already be authenticated as ADMIN.
      */
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+    public ResponseEntity<?> register(@RequestBody RegisterRequest request,
+            Authentication callerAuth) {
         try {
             System.out.println("Registering new user: " + request.getUsername()
                     + " with role: " + request.getRole());
+
+            // ── Role provisioning security gate ──────────────────────────────────
+            // Only an authenticated ADMIN may create DOCTOR or ADMIN accounts.
+            if (request.getRole() != null &&
+                    (request.getRole() == com.mediledger.model.UserRole.ADMIN
+                            || request.getRole() == com.mediledger.model.UserRole.DOCTOR)) {
+                boolean callerIsAdmin = callerAuth != null &&
+                        callerAuth.getAuthorities().stream()
+                                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                if (!callerIsAdmin) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(Map.of("error",
+                                    "Only an Admin can provision DOCTOR or ADMIN accounts. "
+                                            + "Register as PATIENT, or ask your system administrator."));
+                }
+            }
 
             // Check if user already exists
             if (userCredentials.containsKey(request.getUsername())) {
@@ -143,5 +163,16 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Login failed: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Admin-only: provision a new DOCTOR or ADMIN account
+     * POST /api/auth/admin/register
+     */
+    @PostMapping("/admin/register")
+    public ResponseEntity<?> adminRegister(@RequestBody RegisterRequest request,
+            Authentication callerAuth) {
+        // Reuse the same endpoint logic — the gate is already applied in register()
+        return register(request, callerAuth);
     }
 }

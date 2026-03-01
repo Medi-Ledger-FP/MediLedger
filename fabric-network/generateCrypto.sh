@@ -23,7 +23,7 @@ if ! command -v cryptogen &> /dev/null; then
     exit 1
 fi
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 # Clean old crypto materials
 echo -e "${YELLOW}[1/3] Cleaning old crypto materials...${NC}"

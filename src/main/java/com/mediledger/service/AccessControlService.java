@@ -3,6 +3,7 @@ package com.mediledger.service;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -22,12 +23,21 @@ public class AccessControlService {
             String expiresAt, String purpose) {
         String policyId = UUID.randomUUID().toString().substring(0, 8);
 
+        Instant expiry;
+        try {
+            expiry = (expiresAt != null && !expiresAt.isBlank())
+                    ? Instant.parse(expiresAt)
+                    : Instant.now().plus(365, ChronoUnit.DAYS);
+        } catch (Exception e) {
+            expiry = Instant.now().plus(365, ChronoUnit.DAYS); // default 1 year
+        }
+
         AccessPolicy policy = new AccessPolicy(
                 policyId,
                 patientId,
                 doctorId,
                 recordId,
-                Instant.parse(expiresAt),
+                expiry,
                 purpose,
                 true);
 
