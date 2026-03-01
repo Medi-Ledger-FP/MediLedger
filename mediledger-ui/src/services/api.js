@@ -44,6 +44,16 @@ const api = {
         const response = await fetch(`${API_BASE_URL}/files/download/${recordId}`, {
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
         });
+        if (!response.ok) {
+            let errorMsg = 'Download failed';
+            try {
+                const errData = await response.json();
+                errorMsg = errData.message || errData.error || errorMsg;
+            } catch (e) {
+                errorMsg = response.statusText;
+            }
+            throw new Error(errorMsg);
+        }
         return response.blob();
     },
 

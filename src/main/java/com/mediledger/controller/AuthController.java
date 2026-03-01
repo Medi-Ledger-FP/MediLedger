@@ -83,7 +83,7 @@ public class AuthController {
                                 // CA unavailable — JWT-only mode: create minimal wallet dir so login works
                                 System.err.println("⚠️  Fabric CA unavailable, JWT-only mode: " + caEx.getMessage());
                                 try {
-                                        java.nio.file.Path userPath = java.nio.file.Paths.get("data/wallet")
+                                        java.nio.file.Path userPath = identityService.getWalletPath()
                                                         .resolve(request.getUsername());
                                         java.nio.file.Files.createDirectories(userPath);
                                         java.nio.file.Files.writeString(
