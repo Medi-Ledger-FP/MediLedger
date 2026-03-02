@@ -175,8 +175,14 @@ public class EmergencyController {
 
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-                        headers.setContentDispositionFormData("attachment",
-                                        "emergency_record_" + access.recordId() + ".dat");
+
+                        String extension = ".dat";
+                        if (result.recordType != null && result.recordType.contains("|")) {
+                                extension = result.recordType.substring(result.recordType.lastIndexOf("|") + 1);
+                        }
+                        headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                                        "attachment; filename=\"emergency_record_" + access.recordId() + extension
+                                                        + "\"");
                         return new ResponseEntity<>(result.fileBytes, headers, HttpStatus.OK);
                 } catch (Exception e) {
                         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

@@ -67,14 +67,23 @@ public class FileService {
         // ── Step 1: Read file ──────────────────────────────────────────────
         byte[] originalBytes = file.getBytes();
 
+        // ── Append file extension to recordType so download can restore it ─
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = "|" + originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String storedRecordType = recordType + extension;
+        System.out.println("📎 Storing recordType with extension: " + storedRecordType);
+
         // ── Step 2: AES-256-GCM encrypt ───────────────────────────────────
         byte[] encryptedBytes = encryptionService.encrypt(originalBytes);
 
         // ── Step 3: Get the raw AES key (for ABE + SSS) ───────────────────
-        byte[] aesKey = encryptionService.getLastKey(); // see EncryptionService
+        byte[] aesKey = encryptionService.getLastKey();
 
         // ── Step 4: CP-ABE policy key encryption ──────────────────────────
-        Set<String> policy = abeService.buildPolicy(recordType, department,
+        Set<String> policy = abeService.buildPolicy(storedRecordType, department,
                 uploaderRole != null ? uploaderRole : "PATIENT");
         ABEService.ABECiphertext abeCiphertext = abeService.encryptKey(aesKey, policy);
         String serialisedABE = abeService.serialise(abeCiphertext);
@@ -84,13 +93,13 @@ public class FileService {
 
         // ── Step 6: Upload encrypted file to IPFS ─────────────────────────
         String fileHash = encryptionService.calculateHash(encryptedBytes);
-        String ipfsCid = ipfsService.uploadFile(encryptedBytes, file.getOriginalFilename());
+        String ipfsCid = ipfsService.uploadFile(encryptedBytes, originalFilename);
 
         // ── Step 7: Store metadata on blockchain (includes ABE policy) ────
         System.out.println("📋 ABE Policy (persisting to chain): "
                 + serialisedABE.substring(0, Math.min(60, serialisedABE.length())) + "...");
         String recordId = recordService.createRecord(
-                patientId, ipfsCid, fileHash, recordType, department, serialisedABE);
+                patientId, ipfsCid, fileHash, storedRecordType, department, serialisedABE);
 
         System.out.printf(
                 "✅ Upload complete: recordId=%s cid=%s policy=%s shares=%d%n",
@@ -99,7 +108,7 @@ public class FileService {
         // ── Audit log: record creation ─────────────────────────────────────
         auditService.logAccess(patientId, uploaderRole != null ? uploaderRole : "PATIENT",
                 "CREATE_RECORD", recordId, patientId, "SUCCESS", "backend",
-                "File upload: " + recordType + " / " + department);
+                "File upload: " + storedRecordType + " / " + department);
 
         return new FileUploadResult(recordId, ipfsCid, fileHash,
                 String.join(",", policy), sssShares.size());
@@ -114,24 +123,32 @@ public class FileService {
     public FileUploadResult uploadFile(MultipartFile file, String patientId,
             String recordType, String department,
             String uploaderRole, String customAllowedRoles) throws Exception {
+        // Append original file extension to recordType to preserve it
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = "|" + originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String storedRecordType = recordType + extension;
+
         byte[] originalBytes = file.getBytes();
         byte[] encryptedBytes = encryptionService.encrypt(originalBytes);
         byte[] aesKey = encryptionService.getLastKey();
 
         // Patient-controlled policy: override default with custom roles
-        Set<String> policy = abeService.buildPolicy(recordType, department,
+        Set<String> policy = abeService.buildPolicy(storedRecordType, department,
                 uploaderRole != null ? uploaderRole : "PATIENT", customAllowedRoles);
         ABEService.ABECiphertext abeCiphertext = abeService.encryptKey(aesKey, policy);
         String serialisedABE = abeService.serialise(abeCiphertext);
 
         List<String> sssShares = emergencyService.splitAndStoreKey(patientId, aesKey);
         String fileHash = encryptionService.calculateHash(encryptedBytes);
-        String ipfsCid = ipfsService.uploadFile(encryptedBytes, file.getOriginalFilename());
+        String ipfsCid = ipfsService.uploadFile(encryptedBytes, originalFilename);
 
         System.out.println("📋 ABE Policy (patient-controlled: " + String.join(",", policy)
                 + ") | CID: " + ipfsCid);
         String recordId = recordService.createRecord(
-                patientId, ipfsCid, fileHash, recordType, department, serialisedABE);
+                patientId, ipfsCid, fileHash, storedRecordType, department, serialisedABE);
 
         auditService.logAccess(patientId, uploaderRole != null ? uploaderRole : "PATIENT",
                 "CREATE_RECORD", recordId, patientId, "SUCCESS", "backend",
@@ -184,8 +201,9 @@ public class FileService {
 
         // 5. Decrypt with the recovered AES key
         byte[] decryptedBytes = encryptionService.decryptWithKey(encryptedBytes, aesKey);
+        String storedRecordType = extractField(recordJson, "recordType", "Medical Record");
 
-        return new FileDownloadResult(decryptedBytes, ipfsCid);
+        return new FileDownloadResult(decryptedBytes, ipfsCid, storedRecordType);
     }
 
     /** Convenience: download without role check (PATIENT downloading own file) */
@@ -216,9 +234,10 @@ public class FileService {
 
         // 4. Decrypt with the reconstructed AES key
         byte[] decryptedBytes = encryptionService.decryptWithKey(encryptedBytes, aesKey);
+        String storedRecordType = extractField(recordJson, "recordType", "Medical Record");
 
         System.out.println("🔓 Emergency download complete for record " + recordId);
-        return new FileDownloadResult(decryptedBytes, ipfsCid);
+        return new FileDownloadResult(decryptedBytes, ipfsCid, storedRecordType);
     }
 
     private byte[] hexToBytes(String hex) {
@@ -270,10 +289,12 @@ public class FileService {
     public static class FileDownloadResult {
         public final byte[] fileBytes;
         public final String ipfsCid;
+        public final String recordType;
 
-        public FileDownloadResult(byte[] fileBytes, String ipfsCid) {
+        public FileDownloadResult(byte[] fileBytes, String ipfsCid, String recordType) {
             this.fileBytes = fileBytes;
             this.ipfsCid = ipfsCid;
+            this.recordType = recordType;
         }
     }
 }

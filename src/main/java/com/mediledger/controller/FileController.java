@@ -39,8 +39,8 @@ public class FileController {
      * Upload encrypted medical file
      * POST /api/files/upload
      */
-    @PostMapping("/upload")
-    @PreAuthorize("hasAnyRole('PATIENT', 'DOCTOR', 'ADMIN')")
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('PATIENT', 'DOCTOR')")
     public ResponseEntity<?> uploadFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam("patientId") String patientId,
@@ -48,10 +48,14 @@ public class FileController {
             @RequestParam("department") String department,
             @RequestParam(value = "allowedRoles", required = false) String allowedRoles,
             Authentication auth) {
-        String uploaderRole = auth != null && !auth.getAuthorities().isEmpty()
-                ? auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "")
-                : "PATIENT";
         try {
+            System.out.println("🚨 DEBUG UPLOAD 🚨");
+            System.out.println("   Original Filename: " + file.getOriginalFilename());
+            System.out.println("   recordType Param: " + recordType);
+
+            String uploaderRole = auth != null && !auth.getAuthorities().isEmpty()
+                    ? auth.getAuthorities().iterator().next().getAuthority().replace("ROLE_", "")
+                    : "UNKNOWN";
             FileService.FileUploadResult result = allowedRoles != null && !allowedRoles.isBlank()
                     ? fileService.uploadFile(file, patientId, recordType, department, uploaderRole, allowedRoles)
                     : fileService.uploadFile(file, patientId, recordType, department, uploaderRole);
@@ -61,7 +65,9 @@ public class FileController {
                     "File uploaded successfully" + (allowedRoles != null ? " (policy: " + allowedRoles + ")" : ""),
                     result.recordId,
                     result.ipfsCid,
-                    result.fileHash));
+                    result.fileHash,
+                    result.abePolicy,
+                    result.sssShares));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
                     new ErrorResponse("Upload failed: " + e.getMessage()));
@@ -130,7 +136,13 @@ public class FileController {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-            headers.setContentDispositionFormData("attachment", "medical_record_" + recordId + ".dat");
+
+            String extension = ".dat";
+            if (result.recordType != null && result.recordType.contains("|")) {
+                extension = result.recordType.substring(result.recordType.lastIndexOf("|") + 1);
+            }
+            headers.add(HttpHeaders.CONTENT_DISPOSITION,
+                    "attachment; filename=\"medical_record_" + recordId + extension + "\"");
             return new ResponseEntity<>(result.fileBytes, headers, HttpStatus.OK);
         } catch (Exception e) {
             String patientId = recordService.getPatientIdForRecord(recordId);
@@ -178,12 +190,25 @@ public class FileController {
     }
 
     // Response classes
-    private record UploadResponse(
-            boolean success,
-            String message,
-            String recordId,
-            String ipfsCid,
-            String fileHash) {
+    public static class UploadResponse {
+        public boolean success;
+        public String message;
+        public String recordId;
+        public String ipfsCid;
+        public String fileHash;
+        public String abePolicy;
+        public int sssShares;
+
+        public UploadResponse(boolean success, String message, String recordId, String ipfsCid, String fileHash,
+                String abePolicy, int sssShares) {
+            this.success = success;
+            this.message = message;
+            this.recordId = recordId;
+            this.ipfsCid = ipfsCid;
+            this.fileHash = fileHash;
+            this.abePolicy = abePolicy;
+            this.sssShares = sssShares;
+        }
     }
 
     private record ErrorResponse(String error) {

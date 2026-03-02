@@ -44,14 +44,14 @@ function DoctorDashboard({ user }) {
     const handleDownload = async (recordId, recordType) => {
         setMessage(`⏳ Downloading ${recordType || 'record'}…`);
         try {
-            const blob = await api.downloadFile(recordId);
-            const url = window.URL.createObjectURL(blob);
+            const result = await api.downloadFile(recordId);
+            const url = window.URL.createObjectURL(result.blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${recordType || 'medical_record'}_${recordId}.dat`;
+            a.download = result.filename || `${recordType || 'medical_record'}_${recordId}.dat`;
             a.click();
             window.URL.revokeObjectURL(url);
-            setMessage(`✅ Downloaded ${recordType || 'record'} successfully.`);
+            setMessage(`✅ Downloaded ${result.filename || recordType} successfully.`);
         } catch (err) {
             setMessage(`❌ Download failed: ${err.message}`);
         }
@@ -109,14 +109,14 @@ function DoctorDashboard({ user }) {
         setEmgLoading(true);
         setEmgMsg('⏳ Reconstructing key and downloading…');
         try {
-            const blob = await api.emergencyDownload(emgDownloadId.trim());
-            const url = window.URL.createObjectURL(blob);
+            const result = await api.emergencyDownload(emgDownloadId.trim());
+            const url = window.URL.createObjectURL(result.blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `emergency_record_${emgDownloadId.substring(0, 8)}.dat`;
+            a.download = result.filename || `emergency_record_${emgDownloadId.substring(0, 8)}.dat`;
             a.click();
             window.URL.revokeObjectURL(url);
-            setEmgMsg('✅ Emergency download complete. Key was reconstructed via Shamir Secret Sharing.');
+            setEmgMsg(`✅ Emergency download complete: ${result.filename || 'reconstructed file'}.`);
         } catch (err) {
             setEmgMsg(`❌ Emergency download failed: ${err.message}`);
         } finally {
@@ -151,7 +151,14 @@ function DoctorDashboard({ user }) {
                             type="text"
                             placeholder="Enter Patient ID (e.g. patient_demo)"
                             value={patientId}
-                            onChange={(e) => setPatientId(e.target.value)}
+                            onChange={(e) => {
+                                setPatientId(e.target.value);
+                                if (e.target.value.trim() === '') {
+                                    setRecords([]);
+                                    setSearchDone(false);
+                                    setMessage('');
+                                }
+                            }}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                         />
                         <button onClick={handleSearch} className="btn-primary" disabled={loading}>
@@ -210,10 +217,10 @@ function DoctorDashboard({ user }) {
                     </p>
 
                     {/* Step 1: Open Request */}
-                    <details style={{ marginBottom: '1rem' }}>
-                        <summary style={{ fontWeight: 600, cursor: 'pointer', marginBottom: '0.75rem' }}>
+                    <div className="emergency-step" style={{ marginBottom: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}>
+                        <h4 style={{ fontWeight: 600, marginTop: 0, marginBottom: '0.75rem' }}>
                             Step 1: Open Emergency Request
-                        </summary>
+                        </h4>
                         <form onSubmit={handleOpenEmergency} style={{ marginTop: '0.75rem' }}>
                             <div className="form-row">
                                 <div className="form-group">
@@ -233,13 +240,13 @@ function DoctorDashboard({ user }) {
                                 {emgLoading ? '⏳ Opening…' : '🚨 Open Emergency Request'}
                             </button>
                         </form>
-                    </details>
+                    </div>
 
                     {/* Step 2: Submit Approvals */}
-                    <details style={{ marginBottom: '1rem' }}>
-                        <summary style={{ fontWeight: 600, cursor: 'pointer', marginBottom: '0.75rem' }}>
+                    <div className="emergency-step" style={{ marginBottom: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}>
+                        <h4 style={{ fontWeight: 600, marginTop: 0, marginBottom: '0.75rem' }}>
                             Step 2: Submit Approvals (3 times with share index 1, 2, 3)
-                        </summary>
+                        </h4>
                         <form onSubmit={handleApprove} style={{ marginTop: '0.75rem' }}>
                             <div className="form-row">
                                 <div className="form-group">
@@ -267,13 +274,13 @@ function DoctorDashboard({ user }) {
                                 Granted: <strong style={{ color: emgStatus.granted ? '#16a34a' : '#9ca3af' }}>{emgStatus.granted ? 'YES ✅' : 'Not yet'}</strong>
                             </div>
                         )}
-                    </details>
+                    </div>
 
                     {/* Step 3: Emergency Download */}
-                    <details>
-                        <summary style={{ fontWeight: 600, cursor: 'pointer', marginBottom: '0.75rem' }}>
+                    <div className="emergency-step" style={{ marginBottom: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}>
+                        <h4 style={{ fontWeight: 600, marginTop: 0, marginBottom: '0.75rem' }}>
                             Step 3: Emergency Download (after threshold met)
-                        </summary>
+                        </h4>
                         <div style={{ marginTop: '0.75rem' }}>
                             <div className="form-group">
                                 <label>Request ID:</label>
@@ -283,7 +290,7 @@ function DoctorDashboard({ user }) {
                                 {emgLoading ? '⏳ Reconstructing key…' : '📥 Emergency Download'}
                             </button>
                         </div>
-                    </details>
+                    </div>
 
                     {emgMsg && (
                         <div className={emgMsg.includes('✅') || emgMsg.includes('🔓') ? 'success' : emgMsg.includes('⏳') ? '' : 'error'}

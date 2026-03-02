@@ -5,6 +5,7 @@ import com.mediledger.model.LoginRequest;
 import com.mediledger.model.RegisterRequest;
 import com.mediledger.service.IdentityService;
 import com.mediledger.service.JwtService;
+import jakarta.annotation.PostConstruct;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -33,6 +34,55 @@ public class AuthController {
                 this.identityService = identityService;
                 this.jwtService = jwtService;
                 this.passwordEncoder = passwordEncoder;
+        }
+
+        /**
+         * Seed default accounts on every startup so they survive backend restarts.
+         * Credentials (change as needed):
+         * admin_user / Admin@123 (ADMIN)
+         * doctor_user / Doctor@123 (DOCTOR)
+         * patient_user/ Patient@123 (PATIENT)
+         */
+        @PostConstruct
+        public void seedDefaultUsers() {
+                // Credentials come from environment variables — never hardcoded.
+                // Set these before starting the backend:
+                // export SEED_ADMIN_PASS=yourAdminPassword
+                // export SEED_DOCTOR_PASS=yourDoctorPassword
+                // export SEED_PATIENT_PASS=yourPatientPassword
+                record SeedUser(String username, String envVar, String role) {
+                }
+                java.util.List<SeedUser> seeds = java.util.List.of(
+                                new SeedUser("admin_user", "SEED_ADMIN_PASS", "ADMIN"),
+                                new SeedUser("doctor_user", "SEED_DOCTOR_PASS", "DOCTOR"),
+                                new SeedUser("patient_user", "SEED_PATIENT_PASS", "PATIENT"));
+                for (SeedUser s : seeds) {
+                        String pass = System.getenv(s.envVar());
+                        if (pass == null || pass.isBlank()) {
+                                System.out.println("⚠️  Skipping seed for " + s.username() + " — " + s.envVar()
+                                                + " not set");
+                                continue;
+                        }
+                        // 1. Store credentials in memory
+                        userCredentials.put(s.username(), passwordEncoder.encode(pass));
+                        userRoles.put(s.username(), s.role());
+                        // 2. Create wallet directory so identityService.userExists() returns true
+                        try {
+                                java.nio.file.Path userWallet = identityService.getWalletPath().resolve(s.username());
+                                java.nio.file.Files.createDirectories(userWallet);
+                                java.nio.file.Path meta = userWallet.resolve("metadata.json");
+                                if (!java.nio.file.Files.exists(meta)) {
+                                        java.nio.file.Files.writeString(meta,
+                                                        String.format("{\"mspId\":\"HealthcareOrgMSP\",\"role\":\"%s\",\"mode\":\"jwt-only\"}",
+                                                                        s.role()),
+                                                        java.nio.file.StandardOpenOption.CREATE);
+                                }
+                        } catch (Exception e) {
+                                System.err.println("⚠️  Wallet dir creation failed for " + s.username() + ": "
+                                                + e.getMessage());
+                        }
+                        System.out.println("🌱 Seeded user: " + s.username() + " [" + s.role() + "]");
+                }
         }
 
         /**

@@ -54,7 +54,19 @@ const api = {
             }
             throw new Error(errorMsg);
         }
-        return response.blob();
+
+        let filename = `medical_record_${recordId}.dat`;
+        const disposition = response.headers.get('Content-Disposition');
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) {
+                filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+
+        const blob = await response.blob();
+        return { blob, filename };
     },
 
     // Record endpoints
@@ -133,7 +145,19 @@ const api = {
             const err = await response.json();
             throw new Error(err.error || 'Emergency download failed');
         }
-        return response.blob();
+
+        let filename = `emergency_record.dat`;
+        const disposition = response.headers.get('Content-Disposition');
+        if (disposition && disposition.indexOf('attachment') !== -1) {
+            const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+            const matches = filenameRegex.exec(disposition);
+            if (matches != null && matches[1]) {
+                filename = matches[1].replace(/['"]/g, '');
+            }
+        }
+
+        const blob = await response.blob();
+        return { blob, filename };
     },
 
     listEmergencyRequestsByPatient: async (patientId) => {
