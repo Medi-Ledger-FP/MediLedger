@@ -26,3 +26,19 @@ Thumbs.db
 
 # Spring Boot
 application-local.yml
+
+# Runtime Data and PIDs
+*.pid
+data/
+headers.txt
+installed.txt
+med_data.txt
+
+# Test Files & Scripts
+*.pdf
+test-api.js
+test-api.sh
+test-upload.sh
+test_api_flow.sh
+run_test.sh
+verify.py
