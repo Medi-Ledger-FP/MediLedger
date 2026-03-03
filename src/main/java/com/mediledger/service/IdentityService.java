@@ -41,6 +41,10 @@ public class IdentityService {
         this.fabricConfig = fabricConfig;
     }
 
+    public Path getWalletPath() {
+        return this.walletPath;
+    }
+
     /**
      * Enrolls the admin user with the CA (bootstrap operation)
      * This should be called once during initial setup
@@ -91,10 +95,16 @@ public class IdentityService {
         RegistrationRequest registrationRequest = new RegistrationRequest(username);
         registrationRequest.setAffiliation("org1.department1");
         registrationRequest.setEnrollmentID(username);
-
-        // Set attributes based on role
-        registrationRequest.addAttribute(
-                new org.hyperledger.fabric_ca.sdk.Attribute("role", role.name()));
+        if (role == UserRole.ADMIN) {
+            // These are the "Magic Strings" Fabric looks for
+            registrationRequest.addAttribute(
+                    new org.hyperledger.fabric_ca.sdk.Attribute("hf.Registrar.Roles", "client,user,peer"));
+            registrationRequest
+                    .addAttribute(new org.hyperledger.fabric_ca.sdk.Attribute("hf.Registrar.Attributes", "*"));
+            registrationRequest.addAttribute(new org.hyperledger.fabric_ca.sdk.Attribute("admin", "true", true)); // cert
+        } else {
+            registrationRequest.addAttribute(new org.hyperledger.fabric_ca.sdk.Attribute("role", role.name()));
+        }
 
         // Register user with CA
         String enrollmentSecret = caClient.register(registrationRequest, admin);

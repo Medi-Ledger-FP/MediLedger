@@ -43,6 +43,7 @@ public class SecurityConfig {
                         // Public endpoints
                         .requestMatchers(
                                 "/api/auth/register",
+                                "/api/auth/register-initial-admin",
                                 "/api/auth/login",
                                 "/api/identity/enroll-admin")
                         .permitAll()
@@ -64,6 +65,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of("*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(Arrays.asList("Content-Disposition"));
         configuration.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

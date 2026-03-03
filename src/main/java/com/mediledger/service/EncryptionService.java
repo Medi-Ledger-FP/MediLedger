@@ -113,4 +113,33 @@ public class EncryptionService {
         byte[] keyBytes = Base64.getDecoder().decode(base64Key);
         this.masterKey = new SecretKeySpec(keyBytes, "AES");
     }
+
+    /**
+     * Get the raw bytes of the current master AES key.
+     * Used by ABEService to encrypt the key under a CP-ABE policy,
+     * and by ShamirSecretSharingService to split it for emergency access.
+     */
+    public byte[] getLastKey() {
+        return masterKey.getEncoded();
+    }
+
+    /**
+     * Decrypt data using an externally provided AES key (recovered via CP-ABE).
+     * Called by FileService after the role-check and key decryption step.
+     *
+     * @param encrypted   IV-prepended ciphertext
+     * @param rawKeyBytes 32-byte AES-256 key
+     */
+    public byte[] decryptWithKey(byte[] encrypted, byte[] rawKeyBytes) throws Exception {
+        SecretKey key = new SecretKeySpec(rawKeyBytes, "AES");
+
+        byte[] iv = new byte[GCM_IV_LENGTH];
+        byte[] ciphertext = new byte[encrypted.length - GCM_IV_LENGTH];
+        System.arraycopy(encrypted, 0, iv, 0, iv.length);
+        System.arraycopy(encrypted, GCM_IV_LENGTH, ciphertext, 0, ciphertext.length);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+        return cipher.doFinal(ciphertext);
+    }
 }

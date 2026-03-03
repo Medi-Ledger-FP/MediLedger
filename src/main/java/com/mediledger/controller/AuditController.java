@@ -1,6 +1,5 @@
 package com.mediledger.controller;
 
-import com.mediledger.dto.AuditDTO;
 import com.mediledger.dto.AuditDTO.AuditQueryRequest;
 import com.mediledger.dto.AuditDTO.AuditResponse;
 import com.mediledger.service.AuditService;
@@ -9,6 +8,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.List;
+import java.util.Map;
 
 /**
  * REST Controller for Audit Logging
@@ -45,14 +46,33 @@ public class AuditController {
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
         try {
+            // Try blockchain first; fall back to in-memory log list
+            List<Map<String, String>> logs = auditService.getLogsByPatient(patientId);
+            if (!logs.isEmpty()) {
+                return ResponseEntity.ok(logs);
+            }
             if (startDate == null) {
                 startDate = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS).toString();
             }
             if (endDate == null) {
                 endDate = java.time.Instant.now().toString();
             }
-
             return ResponseEntity.ok(auditService.queryAuditLog(patientId, startDate, endDate));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Admin-only: get the most recent 100 audit events across all patients.
+     * GET /api/audit/recent
+     */
+    @GetMapping("/recent")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getRecentAuditLogs(
+            @RequestParam(defaultValue = "100") int max) {
+        try {
+            return ResponseEntity.ok(auditService.getRecentLogs(max));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
@@ -64,7 +84,7 @@ public class AuditController {
             @RequestParam String startDate,
             @RequestParam String endDate) {
         try {
-            return ResponseEntity.ok(auditService.queryFailedAccess(startDate, endDate));
+            return ResponseEntity.ok(auditService.queryAuditByAction("DENIED"));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
@@ -84,7 +104,8 @@ public class AuditController {
     @PreAuthorize("hasAnyRole('PATIENT', 'ADMIN')")
     public ResponseEntity<?> getAuditStatistics(@PathVariable String patientId) {
         try {
-            return ResponseEntity.ok(auditService.getAuditStatistics(patientId));
+            // Use compliance report which includes statistics
+            return ResponseEntity.ok(auditService.generateComplianceReport(patientId));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
@@ -103,7 +124,10 @@ public class AuditController {
                     .getAuthentication()
                     .getName();
 
-            auditService.autoLogAccess(userId, action, recordId, success, request.getRemoteAddr());
+            auditService.logAccess(userId, "UNKNOWN", action,
+                    recordId, "UNKNOWN",
+                    success ? "SUCCESS" : "DENIED",
+                    request.getRemoteAddr(), action);
 
             return ResponseEntity.ok(new AuditResponse(true, "Logged", null));
         } catch (Exception e) {

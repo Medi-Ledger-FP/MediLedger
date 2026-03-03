@@ -14,8 +14,6 @@ fabric:
     channel: healthcarechannel
     chaincode: mediledger-cc
     connection-profile: fabric-network/connection-profile.yaml
-  
-  # Certificate Authority Configuration
   ca:
     url: http://localhost:7054
     name: ca.healthcare.mediledger.com
@@ -23,26 +21,31 @@ fabric:
       username: admin
       password: adminpw
     tls-enabled: false
-  
-  # Organization Configuration
   organization:
     name: HealthcareOrg
     msp-id: HealthcareOrgMSP
     peer:
       url: grpc://localhost:7051
       name: peer0.healthcare.mediledger.com
-  
-  # Wallet Configuration
   wallet:
     type: file
-    path: wallet
+    path: wallet/admin_final
 
 # JWT Configuration
 jwt:
   secret: ${JWT_SECRET:mediledger-secret-key-change-this-in-production-2024}
-  expiration: 86400000  # 24 hours in milliseconds
+  expiration: 86400000
   header: Authorization
   prefix: "Bearer "
+
+# IPFS / Pinata Configuration
+ipfs:
+  pinata:
+    api:
+      key: c1347cf3e6597d0844e4
+    secret:
+      key: 2284103d9efada57de946dd90f089078e9766ebf8d767df6e973841dad922d40
+    jwt: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXRpb24iOnsiaWQiOiJhYjYzMDZlNy01YzBlLTQwMmMtOTRiMC02NjhjMWIyOGNiNTUiLCJlbWFpbCI6Im5pa2hpbHRvbXk3NUBnbWFpbC5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwicGluX3BvbGljeSI6eyJyZWdpb25zIjpbeyJkZXNpcmVkUmVwbGljYXRpb25Db3VudCI6MSwiaWQiOiJGUkExIn0seyJkZXNpcmVkUmVwbGljYXRpb25Db3VudCI6MSwiaWQiOiJOWUMxIn1dLCJ2ZXJzaW9uIjoxfSwibWZhX2VuYWJsZWQiOmZhbHNlLCJzdGF0dXMiOiJBQ1RJVkUifSwiYXV0aGVudGljYXRpb25UeXBlIjoic2NvcGVkS2V5Iiwic2NvcGVkS2V5S2V5IjoiYzEzNDdjZjNlNjU5N2QwODQ0ZTQiLCJzY29wZWRLZXlTZWNyZXQiOiIyMjg0MTAzZDllZmFkYTU3ZGU5NDZkZDkwZjA4OTA3OGU5NzY2ZWJmOGQ3NjdkZjZlOTczODQxZGFkOTIyZDQwIiwiZXhwIjoxODAzMzk0NjA1fQ.lWdJwMuE2OMCwYbpuWIfIUVcwI3tyjKKY6T5zYWfFhQ
 
 # Logging Configuration
 logging:

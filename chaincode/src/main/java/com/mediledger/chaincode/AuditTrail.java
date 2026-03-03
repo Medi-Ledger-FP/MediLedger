@@ -282,11 +282,14 @@ public class AuditTrail implements ContractInterface {
         }
 
         // Create compliance report
+        final String pid = patientId;
+        final int total = entries.size();
+        final List<AuditEntry> trail = entries;
         String report = gson.toJson(new Object() {
-            public final String patientId = patientId;
+            public final String patientId = pid;
             public final String generatedAt = Instant.now().toString();
-            public final int totalAccess = entries.size();
-            public final List<AuditEntry> auditTrail = entries;
+            public final int totalAccess = total;
+            public final List<AuditEntry> auditTrail = trail;
         });
 
         return report;
@@ -324,11 +327,15 @@ public class AuditTrail implements ContractInterface {
             }
         }
 
+        final String pid2 = patientId;
+        final int tot = totalAccess;
+        final int succ = successfulAccess;
+        final int den = deniedAccess;
         String stats = gson.toJson(new Object() {
-            public final String patientId = patientId;
-            public final int total = totalAccess;
-            public final int successful = successfulAccess;
-            public final int denied = deniedAccess;
+            public final String patientId = pid2;
+            public final int total = tot;
+            public final int successful = succ;
+            public final int denied = den;
             public final String generatedAt = Instant.now().toString();
         });
 

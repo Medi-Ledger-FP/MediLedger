@@ -37,13 +37,12 @@ services:
       - ORDERER_GENERAL_LISTENPORT=7050
       - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
       - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
-      # enabled TLS
       - ORDERER_GENERAL_TLS_ENABLED=false
-      - ORDERER_GENERAL_BOOTSTRAPMETHOD=none
-      - ORDERER_CHANNELPARTICIPATION_ENABLED=true
-      - ORDERER_ADMIN_TLS_ENABLED=false
+      - ORDERER_GENERAL_BOOTSTRAPMETHOD=file
+      - ORDERER_GENERAL_BOOTSTRAPFILE=/var/hyperledger/orderer/genesis.block
       - ORDERER_ADMIN_LISTENADDRESS=0.0.0.0:7053
-      - ORDERER_OPERATIONS_LISTENADDRESS=orderer.mediledger.com:9443
+      - ORDERER_ADMIN_TLS_ENABLED=false
+      - ORDERER_OPERATIONS_LISTENADDRESS=0.0.0.0:9443
       - ORDERER_METRICS_PROVIDER=prometheus
     working_dir: /root
     command: orderer
@@ -51,6 +50,7 @@ services:
       - orderer.mediledger.com:/var/hyperledger/production/orderer
       - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/msp:/var/hyperledger/orderer/msp
       - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/tls:/var/hyperledger/orderer/tls
+      - ./fabric-network/channel-artifacts/genesis.block:/var/hyperledger/orderer/genesis.block
     ports:
       - "7050:7050"
       - "7053:7053"
@@ -88,7 +88,7 @@ services:
       - peer0.healthcare.mediledger.com:/var/hyperledger/production
       - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/msp:/etc/hyperledger/fabric/msp
       - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/tls:/etc/hyperledger/fabric/tls
-      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /root
     command: peer node start
     ports:
@@ -99,6 +99,8 @@ services:
       - couchdb
     networks:
       - mediledger
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # CouchDB for Peer
   couchdb:
