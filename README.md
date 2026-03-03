@@ -98,7 +98,7 @@ Emergency request opened (recordId provided)
 |---|---|---|
 | Java | 17+ | Required for Spring Boot 3 |
 | Maven | 3.6+ | Backend build tool |
-| Node.js | 18+ | Frontend |
+| React | 18+ | Frontend |
 | Docker + Docker Compose | Latest | Hyperledger Fabric network |
 | Git | Any | Clone the repo |
 
