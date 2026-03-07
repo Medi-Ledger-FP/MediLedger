@@ -63,12 +63,15 @@ function PatientDashboard({ user }) {
 
     const handleDownload = async (recordId) => {
         try {
-            const blob = await api.downloadFile(recordId);
+            const { blob, filename } = await api.downloadFile(recordId);
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `medical_record_${recordId}.dat`;
+            a.download = filename;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
         } catch (err) {
             alert('Download failed: ' + err.message);
         }
