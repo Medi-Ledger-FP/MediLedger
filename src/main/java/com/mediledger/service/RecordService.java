@@ -92,12 +92,29 @@ public class RecordService {
     }
 
     /**
-     * Get the patientId for a given recordId from the in-memory store.
+     * Get the patientId for a given recordId.
+     * Checks in-memory store first, then falls back to blockchain query.
      * Used by the consent gate in FileController.
      */
     public String getPatientIdForRecord(String recordId) {
+        // 1. Try memory cache first
         Map<String, String> record = records.get(recordId);
-        return record != null ? record.get("patientId") : null;
+        if (record != null && record.containsKey("patientId")) {
+            return record.get("patientId");
+        }
+
+        // 2. Fallback to blockchain query
+        if (fabricGateway.isAvailable()) {
+            try {
+                String recordJson = fabricGateway.evaluateContractTransaction("RecordLedger", "getRecord", recordId);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"patientId\"\\s*:\\s*\"([^\"]+)\"")
+                        .matcher(recordJson);
+                return m.find() ? m.group(1) : null;
+            } catch (Exception e) {
+                System.err.println("⚠️  Blockchain patientId lookup failed: " + e.getMessage());
+            }
+        }
+        return null;
     }
 
     /**

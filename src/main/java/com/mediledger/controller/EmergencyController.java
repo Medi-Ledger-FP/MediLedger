@@ -136,7 +136,7 @@ public class EmergencyController {
         /**
          * Admin: list all emergency requests.
          */
-        @GetMapping("/all")
+        @GetMapping("/requests")
         @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<Map<String, Object>>> listAll() {
                 List<Map<String, Object>> result = emergencyService.listAllRequests().stream()

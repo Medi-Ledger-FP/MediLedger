@@ -38,7 +38,8 @@ function PatientDashboard({ user }) {
     const loadAuthorizedDoctors = async () => {
         try {
             const data = await api.listAuthorizedDoctors(patientId);
-            setAuthorizedDoctors(typeof data === 'string' ? JSON.parse(data) : (Array.isArray(data) ? data : []));
+            // Backend now returns [{grantId, doctorId, recordId, purpose}, ...]
+            setAuthorizedDoctors(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error('Failed to load authorized doctors:', err);
         }
@@ -99,6 +100,21 @@ function PatientDashboard({ user }) {
             setConsentMsg(`❌ Error: ${err.message}`);
         } finally {
             setConsentLoading(false);
+        }
+    };
+
+    const handleRevokeConsent = async (grantId, doctorId) => {
+        if (!window.confirm(`Revoke access for Dr. ${doctorId}? They will no longer be able to download this record.`)) return;
+        try {
+            const result = await api.revokeConsent(grantId);
+            if (result.success) {
+                setConsentMsg(`✅ Access revoked for Dr. ${doctorId}`);
+            } else {
+                setConsentMsg(`❌ ${result.message || 'Failed to revoke access'}`);
+            }
+            loadAuthorizedDoctors();
+        } catch (err) {
+            setConsentMsg(`❌ Error: ${err.message}`);
         }
     };
 
@@ -239,9 +255,41 @@ function PatientDashboard({ user }) {
 
                     {authorizedDoctors.length > 0 && (
                         <div style={{ marginTop: '1rem' }}>
-                            <strong>Currently authorized doctors:</strong>
-                            <ul style={{ marginTop: '0.5rem', paddingLeft: '1.5rem', color: '#374151' }}>
-                                {authorizedDoctors.map((d, i) => <li key={i}>{d}</li>)}
+                            <strong>Currently authorized grants:</strong>
+                            <ul style={{ marginTop: '0.5rem', paddingLeft: '0', listStyle: 'none' }}>
+                                {authorizedDoctors.map((grant, i) => (
+                                    <li key={grant.grantId || i} style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                        padding: '0.5rem 0.75rem', marginBottom: '0.5rem',
+                                        background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb'
+                                    }}>
+                                        <div>
+                                            <strong style={{ color: '#1f2937' }}>
+                                                👨‍⚕️ {grant.doctorId || grant}
+                                            </strong>
+                                            {grant.purpose && (
+                                                <span style={{ marginLeft: '0.5rem', color: '#6b7280', fontSize: '0.8rem' }}>
+                                                    — {grant.purpose}
+                                                </span>
+                                            )}
+                                            {grant.recordId && (
+                                                <div style={{ color: '#9ca3af', fontSize: '0.7rem', marginTop: '0.2rem' }}>
+                                                    Record: {grant.recordId.substring(0, 16)}…
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button
+                                            onClick={() => handleRevokeConsent(grant.grantId, grant.doctorId)}
+                                            style={{
+                                                background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5',
+                                                borderRadius: '6px', padding: '0.3rem 0.75rem',
+                                                cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600'
+                                            }}
+                                        >
+                                            🚫 Revoke
+                                        </button>
+                                    </li>
+                                ))}
                             </ul>
                         </div>
                     )}

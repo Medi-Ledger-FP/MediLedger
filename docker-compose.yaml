@@ -50,7 +50,7 @@ services:
       - orderer.mediledger.com:/var/hyperledger/production/orderer
       - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/msp:/var/hyperledger/orderer/msp
       - ./fabric-network/crypto-config/ordererOrganizations/mediledger.com/orderers/orderer.mediledger.com/tls:/var/hyperledger/orderer/tls
-      - ./fabric-network/channel-artifacts/genesis.block:/var/hyperledger/orderer/genesis.block
+      - ./fabric-network/channel-artifacts/orderer-genesis.block:/var/hyperledger/orderer/genesis.block
     ports:
       - "7050:7050"
       - "7053:7053"
@@ -87,7 +87,6 @@ services:
     volumes:
       - peer0.healthcare.mediledger.com:/var/hyperledger/production
       - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/msp:/etc/hyperledger/fabric/msp
-      - ./fabric-network/crypto-config/peerOrganizations/healthcare.mediledger.com/peers/peer0.healthcare.mediledger.com/tls:/etc/hyperledger/fabric/tls
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /root
     command: peer node start
@@ -97,10 +96,9 @@ services:
     container_name: peer0.healthcare.mediledger.com
     depends_on:
       - couchdb
+      - mediledger-chaincode
     networks:
       - mediledger
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   # CouchDB for Peer
   couchdb:
@@ -113,3 +111,19 @@ services:
     container_name: couchdb
     networks:
       - mediledger
+
+  # MediLedger Chaincode Server (CaaS)
+  mediledger-chaincode:
+    build:
+      context: ./chaincode
+      dockerfile: Dockerfile
+    environment:
+      - CHAINCODE_SERVER_ADDRESS=0.0.0.0:9999
+      # CORE_CHAINCODE_ID_NAME is set by the redeploy script after the package ID is known
+      - CORE_CHAINCODE_ID_NAME=${CC_PACKAGE_ID:-mediledger-cc}
+    ports:
+      - "9999:9999"
+    container_name: mediledger-chaincode
+    networks:
+      - mediledger
+    restart: unless-stopped

@@ -14,10 +14,7 @@ function DoctorDashboard({ user }) {
     const [emgRecordId, setEmgRecordId] = useState('');
     const [emgReason, setEmgReason] = useState('');
     const [emgRequestId, setEmgRequestId] = useState('');
-    const [emgShareIndex, setEmgShareIndex] = useState('1');
-    const [emgApproveId, setEmgApproveId] = useState('');
     const [emgDownloadId, setEmgDownloadId] = useState('');
-    const [emgStatus, setEmgStatus] = useState(null);
     const [emgMsg, setEmgMsg] = useState('');
     const [emgLoading, setEmgLoading] = useState(false);
 
@@ -70,7 +67,6 @@ function DoctorDashboard({ user }) {
             const result = await api.openEmergencyRequest(emgPatientId.trim(), emgRecordId.trim(), emgReason.trim());
             if (result.requestId) {
                 setEmgRequestId(result.requestId);
-                setEmgApproveId(result.requestId);
                 setEmgDownloadId(result.requestId);
                 setEmgMsg(`✅ Emergency request opened. Request ID: ${result.requestId}\n\nNow get ${result.threshold || 3} approvers to submit shares using that Request ID.`);
             } else {
@@ -83,26 +79,6 @@ function DoctorDashboard({ user }) {
         }
     };
 
-    const handleApprove = async (e) => {
-        e.preventDefault();
-        if (!emgApproveId.trim()) { setEmgMsg('❌ Request ID required.'); return; }
-        setEmgLoading(true);
-        setEmgMsg('');
-        try {
-            const result = await api.approveEmergencyRequest(emgApproveId.trim(), parseInt(emgShareIndex));
-            const granted = result.granted === true || result.granted === 'true';
-            setEmgStatus(result);
-            if (granted) {
-                setEmgMsg(`🔓 Threshold met! Emergency access GRANTED. Approvals: ${result.approvalCount}/${result.threshold}. You can now Emergency Download.`);
-            } else {
-                setEmgMsg(`✅ Share submitted. Approvals so far: ${result.approvalCount || '?'}/${result.threshold || 3}. Need more approvals.`);
-            }
-        } catch (err) {
-            setEmgMsg(`❌ ${err.message}`);
-        } finally {
-            setEmgLoading(false);
-        }
-    };
 
     const handleEmergencyDownload = async () => {
         if (!emgDownloadId.trim()) { setEmgMsg('❌ Request ID required for emergency download.'); return; }
@@ -242,44 +218,10 @@ function DoctorDashboard({ user }) {
                         </form>
                     </div>
 
-                    {/* Step 2: Submit Approvals */}
+                    {/* Step 2: Emergency Download */}
                     <div className="emergency-step" style={{ marginBottom: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}>
                         <h4 style={{ fontWeight: 600, marginTop: 0, marginBottom: '0.75rem' }}>
-                            Step 2: Submit Approvals (3 times with share index 1, 2, 3)
-                        </h4>
-                        <form onSubmit={handleApprove} style={{ marginTop: '0.75rem' }}>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Request ID:</label>
-                                    <input type="text" placeholder="From Step 1" value={emgApproveId} onChange={e => setEmgApproveId(e.target.value)} />
-                                </div>
-                                <div className="form-group">
-                                    <label>Share Index (1–5):</label>
-                                    <select value={emgShareIndex} onChange={e => setEmgShareIndex(e.target.value)}>
-                                        <option value="1">Share 1</option>
-                                        <option value="2">Share 2</option>
-                                        <option value="3">Share 3</option>
-                                        <option value="4">Share 4</option>
-                                        <option value="5">Share 5</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <button type="submit" className="btn-primary" disabled={emgLoading}>
-                                {emgLoading ? '⏳ Submitting…' : '✅ Submit Approval Share'}
-                            </button>
-                        </form>
-                        {emgStatus && (
-                            <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#f0fdf4', borderRadius: '8px', fontSize: '0.85rem' }}>
-                                Approvals: <strong>{emgStatus.approvalCount}/{emgStatus.threshold}</strong> |
-                                Granted: <strong style={{ color: emgStatus.granted ? '#16a34a' : '#9ca3af' }}>{emgStatus.granted ? 'YES ✅' : 'Not yet'}</strong>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Step 3: Emergency Download */}
-                    <div className="emergency-step" style={{ marginBottom: '1rem', padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' }}>
-                        <h4 style={{ fontWeight: 600, marginTop: 0, marginBottom: '0.75rem' }}>
-                            Step 3: Emergency Download (after threshold met)
+                            Step 2: Emergency Download (after Admin approvals met)
                         </h4>
                         <div style={{ marginTop: '0.75rem' }}>
                             <div className="form-group">

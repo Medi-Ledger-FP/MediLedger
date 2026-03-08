@@ -35,6 +35,10 @@ public class ConsentService {
         return doctors.toString();
     }
 
+    public java.util.List<java.util.Map<String, String>> listAuthorizedGrants(String patientId) {
+        return accessControlService.listAuthorizedGrants(patientId);
+    }
+
     public String listDoctorAccess(String doctorId) {
         List<String> patients = accessControlService.listDoctorAccess(doctorId);
         return patients.toString();

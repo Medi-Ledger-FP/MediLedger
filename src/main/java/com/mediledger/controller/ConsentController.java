@@ -70,7 +70,8 @@ public class ConsentController {
     @PreAuthorize("hasAnyRole('PATIENT', 'ADMIN')")
     public ResponseEntity<?> listAuthorizedDoctors(@PathVariable String patientId) {
         try {
-            return ResponseEntity.ok(consentService.listAuthorizedDoctors(patientId));
+            // Returns proper JSON array: [{grantId, doctorId, recordId, purpose}, ...]
+            return ResponseEntity.ok(consentService.listAuthorizedGrants(patientId));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }

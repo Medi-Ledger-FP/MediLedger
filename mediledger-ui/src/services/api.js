@@ -15,6 +15,18 @@ const api = {
         return response.json();
     },
 
+    adminRegister: async (username, password, role) => {
+        const response = await fetch(`${API_BASE_URL}/auth/admin/register`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAuthToken()}`
+            },
+            body: JSON.stringify({ username, password, role })
+        });
+        return response.text(); // Returns simple string success message
+    },
+
     login: async (username, password) => {
         const response = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
@@ -114,6 +126,13 @@ const api = {
                 'Authorization': `Bearer ${getAuthToken()}`
             },
             body: JSON.stringify({ patientId, recordId, reason })
+        });
+        return response.json();
+    },
+
+    getAllEmergencyRequests: async () => {
+        const response = await fetch(`${API_BASE_URL}/emergency/requests`, {
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
         });
         return response.json();
     },

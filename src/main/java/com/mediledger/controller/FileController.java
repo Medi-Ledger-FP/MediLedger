@@ -112,18 +112,25 @@ public class FileController {
             // DOCTOR must have explicit patient consent per record.
             if ("DOCTOR".equals(role)) {
                 String patientId = recordService.getPatientIdForRecord(recordId);
-                if (patientId != null) {
-                    boolean hasConsent = consentService.checkAccess(userId, recordId, patientId);
-                    if (!hasConsent) {
-                        auditService.logAccess(userId, role, "VIEW_RECORD",
-                                recordId, patientId, "DENIED", "HTTP",
-                                "No patient consent for doctor " + userId);
-                        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                                .body(new ErrorResponse(
-                                        "Access denied: Patient has not granted you consent for this record. "
-                                                + "Ask the patient to go to their dashboard and grant access "
-                                                + "to your username (" + userId + ")."));
-                    }
+                if (patientId == null || patientId.trim().isEmpty()) {
+                    auditService.logAccess(userId, role, "VIEW_RECORD",
+                            recordId, "UNKNOWN", "DENIED", "HTTP",
+                            "Cannot resolve patient owner for record " + recordId + " to verify consent.");
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(new ErrorResponse(
+                                    "Access denied: Cannot verify consent because the patient owner of this record is unknown."));
+                }
+
+                boolean hasConsent = consentService.checkAccess(userId, recordId, patientId);
+                if (!hasConsent) {
+                    auditService.logAccess(userId, role, "VIEW_RECORD",
+                            recordId, patientId, "DENIED", "HTTP",
+                            "No patient consent for doctor " + userId);
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(new ErrorResponse(
+                                    "Access denied: Patient has not granted you consent for this record. "
+                                            + "Ask the patient to go to their dashboard and grant access "
+                                            + "to your username (" + userId + ")."));
                 }
             }
 

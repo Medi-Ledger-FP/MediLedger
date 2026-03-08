@@ -15,6 +15,18 @@ function AdminDashboard() {
     const [auditFilter, setAuditFilter] = useState('ALL');
     const [auditMsg, setAuditMsg] = useState('');
 
+    // Registration state
+    const [regUsername, setRegUsername] = useState('');
+    const [regPassword, setRegPassword] = useState('');
+    const [regRole, setRegRole] = useState('DOCTOR');
+    const [regMsg, setRegMsg] = useState('');
+    const [regLoading, setRegLoading] = useState(false);
+
+    // Emergency approval state
+    const [emgRequests, setEmgRequests] = useState([]);
+    const [emgLoading, setEmgLoading] = useState(false);
+    const [emgMsg, setEmgMsg] = useState('');
+
     useEffect(() => {
         const token = localStorage.getItem('token');
         if (!token) { window.location.href = '/'; return; }
@@ -26,9 +38,22 @@ function AdminDashboard() {
             .then((data) => { setStats(data); setLoading(false); })
             .catch((err) => { setError(err.message); setLoading(false); });
 
-        // Load audit logs
+        // Load audit logs and emergency requests
         loadAuditLogs();
+        loadEmergencyRequests();
     }, []);
+
+    const loadEmergencyRequests = async () => {
+        setEmgLoading(true);
+        try {
+            const data = await api.getAllEmergencyRequests();
+            setEmgRequests(Array.isArray(data) ? data : []);
+        } catch (err) {
+            setEmgMsg('Failed to load emergency requests: ' + err.message);
+        } finally {
+            setEmgLoading(false);
+        }
+    };
 
     const loadAuditLogs = async () => {
         setAuditLoading(true);
@@ -50,6 +75,39 @@ function AdminDashboard() {
     const filteredLogs = auditFilter === 'ALL'
         ? auditLogs
         : auditLogs.filter(e => e.result === auditFilter || e.action === auditFilter);
+
+    const handleRegisterStaff = async (e) => {
+        e.preventDefault();
+        if (!regUsername || !regPassword) { setRegMsg('❌ All fields required'); return; }
+        setRegLoading(true);
+        setRegMsg('');
+        try {
+            const res = await api.adminRegister(regUsername, regPassword, regRole);
+            setRegMsg(`✅ Successfully registered ${regRole}: ${regUsername}`);
+            setRegUsername('');
+            setRegPassword('');
+        } catch (err) {
+            setRegMsg('❌ Registration failed: ' + err.message);
+        } finally {
+            setRegLoading(false);
+        }
+    };
+
+    const handleApproveEmergency = async (requestId, shareIndex) => {
+        setEmgMsg(`⏳ Approving request ${requestId} with share ${shareIndex}...`);
+        try {
+            const res = await api.approveEmergencyRequest(requestId, shareIndex);
+            if (res.granted) {
+                setEmgMsg(`✅ Threshold met! Access completely GRANTED for ${requestId}.`);
+            } else {
+                setEmgMsg(`✅ Share ${shareIndex} accepted for ${requestId}. Current approvals: ${res.approvalCount || '?'}/${res.threshold || 3}`);
+            }
+            loadEmergencyRequests(); // refresh list
+            loadAuditLogs(); // refresh logs to show the new approval
+        } catch (err) {
+            setEmgMsg('❌ Approval failed: ' + err.message);
+        }
+    };
 
     const handleLogout = () => {
         localStorage.clear();
@@ -139,6 +197,97 @@ function AdminDashboard() {
                         </div>
                     </>
                 )}
+
+                <div className="admin-actions-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+
+                    {/* Register Medical Staff */}
+                    <div className="card" style={{ marginBottom: 0 }}>
+                        <h3>👨‍⚕️ Register Medical Staff</h3>
+                        <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                            Provision new Doctor or Admin accounts. Standard users cannot register these roles publicly.
+                        </p>
+                        <form onSubmit={handleRegisterStaff}>
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Username</label>
+                                    <input type="text" value={regUsername} onChange={e => setRegUsername(e.target.value)} placeholder="e.g. dr_smith" />
+                                </div>
+                                <div className="form-group">
+                                    <label>Role</label>
+                                    <select value={regRole} onChange={e => setRegRole(e.target.value)}>
+                                        <option value="DOCTOR">Doctor</option>
+                                        <option value="ADMIN">System Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label>Password</label>
+                                <input type="password" value={regPassword} onChange={e => setRegPassword(e.target.value)} placeholder="Strong password" />
+                            </div>
+                            <button type="submit" className="btn-primary" disabled={regLoading}>
+                                {regLoading ? '⏳ Registering...' : '➕ Create Account'}
+                            </button>
+                            {regMsg && (
+                                <div className={regMsg.includes('✅') ? 'success' : 'error'} style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
+                                    {regMsg}
+                                </div>
+                            )}
+                        </form>
+                    </div>
+
+                    {/* Emergency Approvals */}
+                    <div className="card" style={{ marginBottom: 0 }}>
+                        <h3>🚨 Pending Emergency Requests
+                            <button onClick={loadEmergencyRequests} disabled={emgLoading} style={{ marginLeft: '1rem', fontSize: '0.8rem', padding: '4px 10px', cursor: 'pointer', border: '1px solid #d1d5db', borderRadius: '4px', background: '#f9fafb' }}>
+                                {emgLoading ? '⏳' : '↺ Refresh'}
+                            </button>
+                        </h3>
+                        <p style={{ color: '#6b7280', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                            Stakeholder panel. Approve life-critical access requests by submitting your cryptographic share.
+                        </p>
+                        <div style={{ background: '#e0e7ff', borderLeft: '4px solid #4f46e5', padding: '0.75rem', marginBottom: '1rem', borderRadius: '4px', fontSize: '0.8rem', color: '#3730a3' }}>
+                            <strong>Simulation Note:</strong> In production, these approvals are safely distributed to patient-assigned trustees (e.g., family, primary physician). For this demonstration, they are aggregated here in the Admin panel.
+                        </div>
+                        {emgMsg && (
+                            <div className={emgMsg.includes('✅') ? 'success' : emgMsg.includes('⏳') ? '' : 'error'} style={{ marginBottom: '1rem', fontSize: '0.85rem' }}>
+                                {emgMsg}
+                            </div>
+                        )}
+                        {emgRequests.length === 0 ? (
+                            <p className="empty-state" style={{ padding: '1rem', fontSize: '0.85rem' }}>No pending emergency requests.</p>
+                        ) : (
+                            <div className="records-list" style={{ maxHeight: '250px', overflowY: 'auto', paddingRight: '5px' }}>
+                                {emgRequests.filter(r => r.status === 'PENDING').length === 0 && (
+                                    <p className="empty-state" style={{ padding: '1rem', fontSize: '0.85rem' }}>All requests have been finalized.</p>
+                                )}
+                                {emgRequests.filter(r => r.status === 'PENDING').map(req => (
+                                    <div key={req.requestId} className="record-item" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '1rem', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                                        <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                            <strong>ID: {req.requestId}</strong>
+                                            <span style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>{req.collectedShares?.length || 0}/{req.threshold} Approvals</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: '#4b5563', marginBottom: '0.75rem' }}>
+                                            <div><strong>By:</strong> {req.requesterId} <strong>For:</strong> {req.patientId}</div>
+                                            <div><strong>Reason:</strong> {req.reason}</div>
+                                            <div><strong>Record:</strong> {req.recordId}</div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+                                            {/* Simulate stakeholders 1, 2, 3 submitting their shares */}
+                                            {[1, 2, 3].map(i => (
+                                                <button key={i}
+                                                    onClick={() => handleApproveEmergency(req.requestId, i)}
+                                                    className="btn-primary"
+                                                    style={{ flex: 1, padding: '0.4rem', fontSize: '0.75rem', background: '#dc2626' }}>
+                                                    Submit Share {i}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
 
                 {/* HIPAA Audit Log */}
                 <div className="card">

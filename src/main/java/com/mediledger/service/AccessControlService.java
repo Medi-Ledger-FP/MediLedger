@@ -73,7 +73,8 @@ public class AccessControlService {
     }
 
     /**
-     * List all authorized doctors for a patient
+     * List all authorized doctors for a patient (returns just doctor names — kept
+     * for compatibility)
      */
     public List<String> listAuthorizedDoctors(String patientId) {
         Set<String> doctors = new HashSet<>();
@@ -85,6 +86,26 @@ public class AccessControlService {
             }
         }
         return new ArrayList<>(doctors);
+    }
+
+    /**
+     * List full grant objects for a patient — includes grantId needed for revoke
+     */
+    public List<Map<String, String>> listAuthorizedGrants(String patientId) {
+        List<Map<String, String>> grants = new ArrayList<>();
+        for (AccessPolicy policy : policies.values()) {
+            if (policy.patientId.equals(patientId) &&
+                    policy.active &&
+                    policy.expiresAt.isAfter(Instant.now())) {
+                Map<String, String> grant = new java.util.LinkedHashMap<>();
+                grant.put("grantId", policy.policyId);
+                grant.put("doctorId", policy.doctorId);
+                grant.put("recordId", policy.recordId);
+                grant.put("purpose", policy.purpose != null ? policy.purpose : "");
+                grants.add(grant);
+            }
+        }
+        return grants;
     }
 
     /**
