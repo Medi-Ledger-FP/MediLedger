@@ -13,8 +13,8 @@ function DoctorDashboard({ user }) {
     const [emgPatientId, setEmgPatientId] = useState('');
     const [emgRecordId, setEmgRecordId] = useState('');
     const [emgReason, setEmgReason] = useState('');
-    const [emgRequestId, setEmgRequestId] = useState('');
-    const [emgDownloadId, setEmgDownloadId] = useState('');
+    const [emgRequestId, setEmgRequestId] = useState(localStorage.getItem('lastEmgRequestId') || '');
+    const [emgDownloadId, setEmgDownloadId] = useState(localStorage.getItem('lastEmgRequestId') || '');
     const [emgMsg, setEmgMsg] = useState('');
     const [emgLoading, setEmgLoading] = useState(false);
 
@@ -68,6 +68,7 @@ function DoctorDashboard({ user }) {
             if (result.requestId) {
                 setEmgRequestId(result.requestId);
                 setEmgDownloadId(result.requestId);
+                localStorage.setItem('lastEmgRequestId', result.requestId);
                 setEmgMsg(`✅ Emergency request opened. Request ID: ${result.requestId}\n\nNow get ${result.threshold || 3} approvers to submit shares using that Request ID.`);
             } else {
                 setEmgMsg(`❌ ${result.error || result.message || 'Failed to open request'}`);
